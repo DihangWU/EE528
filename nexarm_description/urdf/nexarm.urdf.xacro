@@ -80,7 +80,7 @@
     <parent link="link1"/>
     <child link="link2"/>
     <axis xyz="0 1 0"/>
-    <limit effort="1000" lower="-1.57" upper="1.0" velocity="3.14"/>
+    <limit effort="1000" lower="-1.57" upper="1.4" velocity="3.14"/>
   </joint>
   <link name="link3">
     <inertial>
@@ -331,7 +331,7 @@
   <joint name="world_to_base_joint" type="fixed">
     <parent link="world"/>
     <child link="base_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>  <!-- 与宏中的origin相同 -->
+    <origin xyz="0 0 0" rpy="0 0 0"/>  <!-- No mounting-height offset -->
   </joint>
    
   <xacro:nexarm_gazebo prefix="$(arg prefix)"></xacro:nexarm_gazebo> 
@@ -342,7 +342,7 @@
   <xacro:if value="$(arg gazebo_demo)">
     <link name="pen_link">
       <inertial><mass value="0.002"/><inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" ixz="0" iyz="0"/></inertial>
-      <visual><origin xyz="0 0 -0.05" rpy="0 0 0"/><geometry><cylinder radius="0.003" length="0.10"/></geometry><material name="pen_orange"><color rgba="1 0.5 0 1"/></material></visual>
+      <visual><origin xyz="0 0 -0.0125" rpy="0 0 0"/><geometry><cylinder radius="0.003" length="0.025"/></geometry><material name="pen_orange"><color rgba="1 0.5 0 1"/></material></visual>
     </link>
     <joint name="pen_joint" type="fixed"><parent link="gripper_link"/><child link="pen_link"/><origin xyz="0 0 0"/></joint>
     <gazebo>

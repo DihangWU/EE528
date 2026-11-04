@@ -9,6 +9,7 @@ setup(
     version='0.0.0',
     packages=find_packages(exclude=['test']),
     data_files=[
+        ('share/nexarm_description/UI', glob('../UI/*.py')),
         ('share/nexarm_description/worlds', glob('worlds/*.sdf')),
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -28,6 +29,7 @@ setup(
     entry_points={
         'console_scripts': [
             'draw_s = nexarm_description.draw_s:main',
+            'export_trajectory = nexarm_description.export_trajectory:main',
         ],
     },
 )

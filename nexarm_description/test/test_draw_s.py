@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from nexarm_description.draw_s import (
-    chain_from_xml, forward, plan, text_strokes, writing_targets,
+    PEN_LENGTH, chain_from_xml, forward, plan, text_strokes, writing_targets,
 )
 
 
@@ -24,20 +24,37 @@ def test_writing_and_pen_lifts():
     q, tips, ink = plan(chain)
     assert len(text_strokes()) == 5  # Each character is a single continuous stroke.
     assert np.array_equal(ink, expected_ink)
+    # Robot mount is at world ground; ink lies on world z=0.
+    import xml.etree.ElementTree as ET
+    root = ET.parse(model).getroot()
+    mount = root.find("joint[@name='world_to_base_joint']/origin")
+    mount_z = float(mount.get('xyz').split()[2])
+    assert mount_z == pytest.approx(0.0)
+    assert np.allclose(tips[ink, 2] + mount_z, 0., atol=0.0005)
+    # Original front writing, with no 90-degree offset at J1.
+    assert np.allclose(targets[0, :2], [.3225, .085])
+    assert np.all(tips[:, 0] >= .2995)
+    assert np.all(np.abs(q[:, 0]) < .4)
     assert np.allclose(tips, targets, atol=0.0005)
     assert tips[-1, 2] == pytest.approx(0.015, abs=0.0005)
     assert np.max(np.abs(np.diff(q, axis=0))) * 30 < 3.14
+    # Short pen lowers the gripper mount to 2.5 cm while writing farther out.
+    assert PEN_LENGTH == pytest.approx(0.025)
+    gripper_heights = np.array([forward(chain, angles)[2, 3] for angles in q])
+    assert np.allclose(gripper_heights[ink], 0.025, atol=0.0005)
+    pen_visual = root.find(".//link[@name='pen_link']/visual")
+    assert float(pen_visual.find('geometry/cylinder').get('length')) == PEN_LENGTH
     for angles, tip in zip(q, tips):
         pose = forward(chain, angles)
         assert np.allclose(pose[:3, 2], [0, 0, 1], atol=0.005)
-        assert np.allclose(tip, pose[:3, 3] - 0.10 * pose[:3, 2])
+        assert np.allclose(tip, pose[:3, 3] - PEN_LENGTH * pose[:3, 2])
     for i, joint in enumerate(chain[:4]):
         assert np.all(q[:, i] >= float(joint[3].get('lower')))
         assert np.all(q[:, i] <= float(joint[3].get('upper')))
     # Rendered segments touch the paper at both ends; no travel gets ink.
     edges = np.flatnonzero(ink)
-    assert np.allclose(tips[edges, 2], 0, atol=0.0005)
-    assert np.allclose(tips[edges - 1, 2], 0, atol=0.0005)
+    assert np.allclose(tips[edges, 2], 0.0, atol=0.0005)
+    assert np.allclose(tips[edges - 1, 2], 0.0, atol=0.0005)
     starts = np.flatnonzero(ink & ~np.r_[False, ink[:-1]])
     ends = np.flatnonzero(ink & ~np.r_[ink[1:], False])
     assert len(starts) == len(ends) == 5

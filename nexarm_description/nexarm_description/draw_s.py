@@ -7,6 +7,9 @@ from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
 
+PEN_LENGTH = 0.025
+
+
 def chain_from_xml(xml):
     """Read the actual model dimensions and limits."""
     root = ET.fromstring(xml)
@@ -64,7 +67,7 @@ def text_strokes():
     for index, glyph in enumerate([e, e, five, two, eight]):
         for stroke in glyph:
             uv = np.asarray(stroke)
-            strokes.append(np.column_stack((.25 + .045 * uv[:, 1],
+            strokes.append(np.column_stack((.30 + .045 * uv[:, 1],
                                              .085 - .036 * index - .025 * uv[:, 0])))
     return strokes
 
@@ -101,7 +104,8 @@ def writing_targets(height=0.0, duration=50.0, lift=0.015):
         u = t * t * (3 - 2 * t)
         targets.extend(a + u[:, None] * (b - a))
         ink.extend([drawing] * count)
-    return np.array(targets), np.array(ink, dtype=bool)
+    targets = np.array(targets)
+    return targets, np.array(ink, dtype=bool)
 
 
 def plan(chain, height=0.0, duration=50.0, lift=0.015):
@@ -116,13 +120,13 @@ def plan(chain, height=0.0, duration=50.0, lift=0.015):
     for target in targets:
         def residual(angles):
             pose = forward(chain, angles)
-            tip = pose[:3, 3] + -pose[:3, 2] * 0.10
+            tip = pose[:3, 3] + -pose[:3, 2] * PEN_LENGTH
             return np.r_[tip - target, 0.1 * (sum(angles[1:]))]
         result = least_squares(residual, q, bounds=limits, gtol=1e-11,
                                ftol=1e-11, xtol=1e-11)
         q = result.x
         pose = forward(chain, q)
-        tip = pose[:3, 3] + -pose[:3, 2] * 0.10
+        tip = pose[:3, 3] + -pose[:3, 2] * PEN_LENGTH
         if np.linalg.norm(tip - target) > 0.0005 or np.linalg.norm(residual(q)) > 0.0005:
             raise ValueError(f'Unreachable drawing point: {target}')
         positions.append(q.copy())

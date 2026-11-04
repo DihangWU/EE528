@@ -115,3 +115,27 @@ ros2 launch nexarm_description draw_s.launch.py
 # 抬笔高度单位为米；duration 控制基础书写时长
 ros2 launch nexarm_description draw_s.launch.py lift:=0.02 duration:=60.0
 ```
+
+### 安装高度与当前地面
+
+当前模型通过 `world_to_base_joint` 将整个机械臂抬高 10 厘米，RViz 的固定坐标系改为 `world`，网格地面保持世界坐标 `z=0`。书写默认高度为 `base_link` 坐标中的 `height=-0.10`，即世界地面；画笔仍长 10 厘米，每笔结束抬高 1.5 厘米。
+
+为允许 J2 向下放低，本仿真 Xacro 中 J2 上限由 1.0 改为 1.4 弧度（约 80°）；完整书写实际使用约 69°–76°。这是仿真范围设定，实物范围仍需按机械臂规格确认。上文旧版高度和 Fixed Frame 说明以本节为准。
+
+### 当前书写设置
+
+机械臂在正前方书写 ee528，没有底座垫高，默认 `height=0.0`，落笔位于世界地面 `z=0`。画笔已缩短为 **2.5 厘米**，书写区向外移动 5 厘米，位于底座前方 **30–34.5 厘米**。夹爪安装点落笔时离地约 2.5 厘米，J3 随书写轨迹协同前伸。各笔结束仍抬高 1.5 厘米，8 连续一笔写完。
+
+仿真 J2 上限为 1.4 弧度（约 80°）。完整轨迹已检查可达性、关节限位及速度；尚未验证夹爪网格与地面的碰撞间隙。本节取代前文旧的笔长、书写位置和垫高设置。
+
+### 导出时间与关节角度
+
+```bash
+ros2 run nexarm_description export_trajectory --output trajectories/ee528.csv
+```
+
+CSV 仅包含 `time_s,joint1_deg,joint2_deg,joint3_deg,joint4_deg,joint5_deg`，角度单位为度，30 Hz 采样，J5 固定为 0。抬笔和移动的全部关节角度保留在轨迹中，不单独导出落笔状态。角度是 URDF 关节角，尚未转换为舵机编码值。
+
+## 手动输入关节角度
+
+关闭写字/滑块/Gazebo 演示后，运行 `./UI/start.sh`，会打开角度控制面板与 RViz。支持 J1～J5 和夹爪角度输入、滑块、归零、停止及模型限位校验。使用说明见 [UI/README.md](UI/README.md)。
