@@ -15,11 +15,13 @@ def generate_launch_description():
         'xacro ', os.path.join(share, 'urdf', 'nexarm.urdf.xacro')]), value_type=str)
     return LaunchDescription([
         DeclareLaunchArgument('height', default_value='0.0'),
-        DeclareLaunchArgument('duration', default_value='16.0'),
+        DeclareLaunchArgument('duration', default_value='50.0'),
+        DeclareLaunchArgument('lift', default_value='0.015'),
         Node(package='robot_state_publisher', executable='robot_state_publisher',
              parameters=[{'robot_description': description}]),
         Node(package='nexarm_description', executable='draw_s', output='screen',
              parameters=[{'robot_description': description,
+                          'lift': ParameterValue(LaunchConfiguration('lift'), value_type=float),
                           'height': ParameterValue(LaunchConfiguration('height'), value_type=float),
                           'duration': ParameterValue(LaunchConfiguration('duration'), value_type=float)}]),
         Node(package='rviz2', executable='rviz2',

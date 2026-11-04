@@ -1,4 +1,4 @@
-"""Horizontal S drawing demo with a virtual pen and bounded inverse kinematics."""
+"""Write ee528 with separate strokes, pen lifts and bounded inverse kinematics."""
 import math
 import xml.etree.ElementTree as ET
 
@@ -38,25 +38,77 @@ def forward(chain, q):
     return pose
 
 
-def plan(chain, height=0.0, duration=16.0):
-    """Preflight the complete path before publishing any motion."""
-    if not math.isfinite(height) or not math.isfinite(duration) or duration < 4:
-        raise ValueError('height must be finite and duration must be at least 4 seconds')
+def text_strokes():
+    """Return ee528 strokes on the ground, in readable top-view order."""
+    def bezier(a, b, c, d):
+        t = np.linspace(0, 1, 17)[:, None]
+        return ((1 - t) ** 3 * np.array(a)
+                + 3 * (1 - t) ** 2 * t * np.array(b)
+                + 3 * (1 - t) * t ** 2 * np.array(c) + t ** 3 * np.array(d))
+
+    # Lowercase e: crossbar followed by an open, rounded loop.
+    angle = np.linspace(0, 1.90 * np.pi, 73)
+    e = [np.vstack(([[0, .5]], np.column_stack((.5 + .5 * np.cos(angle),
+                                                .5 + .5 * np.sin(angle)))))]
+    two = [np.vstack((
+        bezier((0, .78), (.1, 1.12), (.95, 1.12), (1, .78)),
+        bezier((1, .78), (1, .55), (.2, .25), (0, 0))[1:], [[1, 0]]))]
+    five = [np.vstack(([[1, 1], [0, 1], [0, .55]],
+                        bezier((0, .55), (.4, .7), (1, .65), (1, .3))[1:],
+                        bezier((1, .3), (1, -.08), (.15, -.08), (0, .15))[1:]))]
+    # One continuous figure-eight, crossing the waist without lifting.
+    theta = np.linspace(0, 2 * np.pi, 97)
+    eight = [np.column_stack((.5 + .5 * np.sin(2 * theta),
+                              .5 + .5 * np.sin(theta)))]
+    strokes = []
+    for index, glyph in enumerate([e, e, five, two, eight]):
+        for stroke in glyph:
+            uv = np.asarray(stroke)
+            strokes.append(np.column_stack((.25 + .045 * uv[:, 1],
+                                             .085 - .036 * index - .025 * uv[:, 0])))
+    return strokes
+
+
+def writing_targets(height=0.0, duration=50.0, lift=0.015):
+    """Sample pen-down strokes and vertical lift/travel/lower transitions."""
+    if (not all(math.isfinite(v) for v in [height, duration, lift])
+            or duration < 4 or lift <= 0):
+        raise ValueError('Finite height/duration/lift required; duration >= 4, lift > 0')
+    segments = []
+    strokes = text_strokes()
+    current = np.r_[strokes[0][0], height + lift]
+    initial = current.copy()
+    for stroke in strokes:
+        above = np.r_[stroke[0], height + lift]
+        down = np.r_[stroke[0], height]
+        for target, ink in [(above, False), (down, False)]:
+            if np.linalg.norm(target - current) > 1e-9:
+                segments.append((current.copy(), target, ink))
+            current = target
+        for xy in stroke[1:]:
+            target = np.r_[xy, height]
+            segments.append((current.copy(), target, True))
+            current = target
+        target = current + [0, 0, lift]
+        segments.append((current.copy(), target, False))
+        current = target
+    # Every segment stops smoothly, including corners and pen lifts.
+    weights = np.array([np.linalg.norm(b - a) for a, b, _ in segments])
+    counts = np.maximum(3, np.ceil(duration * 30 * weights / weights.sum()).astype(int))
+    targets, ink = [initial], [False]
+    for (a, b, drawing), count in zip(segments, counts):
+        t = np.linspace(0, 1, count + 1)[1:]
+        u = t * t * (3 - 2 * t)
+        targets.extend(a + u[:, None] * (b - a))
+        ink.extend([drawing] * count)
+    return np.array(targets), np.array(ink, dtype=bool)
+
+
+def plan(chain, height=0.0, duration=50.0, lift=0.015):
+    """Preflight every writing and pen-up point before publishing motion."""
+    targets, ink = writing_targets(height, duration, lift)
     limits = ([float(j[3].get('lower')) for j in chain[:4]],
               [float(j[3].get('upper')) for j in chain[:4]])
-    count = math.ceil(duration * 30) + 1
-    t = np.linspace(0, 1, count)
-    # Two tangent 270-degree arcs form rounded, almost closed S lobes.
-    # Smooth time scaling preserves the common tangent at the join.
-    u = t * t * (3 - 2 * t)
-    radius = 0.035
-    upper = u <= 0.5
-    angle = np.where(upper, 3 * np.pi * u,
-                     np.pi / 2 - 3 * np.pi * (u - 0.5))
-    targets = np.column_stack((0.27 + radius * np.cos(angle),
-                               np.where(upper, radius, -radius)
-                               + radius * np.sin(angle),
-                               np.full(count, height)))
     q = np.array([0., 0.5, -0.4, 1.47])
     # Pen mounts along gripper -Z, perpendicular to its forward +X axis.
     # Zero total pitch keeps the gripper horizontal and the pen vertical.
@@ -78,7 +130,7 @@ def plan(chain, height=0.0, duration=16.0):
     positions = np.array(positions)
     if np.max(np.abs(np.diff(positions, axis=0))) * 30 > 3.14:
         raise ValueError('Trajectory exceeds joint velocity limits; increase duration')
-    return positions, np.array(tips)
+    return positions, np.array(tips), ink
 
 
 def main(args=None):
@@ -96,11 +148,13 @@ def main(args=None):
     node.declare_parameter('gazebo', False)
     gazebo = node.get_parameter('gazebo').value
     node.declare_parameter('height', 0.0)
-    node.declare_parameter('duration', 16.0)
+    node.declare_parameter('duration', 50.0)
+    node.declare_parameter('lift', 0.015)
     chain = chain_from_xml(node.get_parameter('robot_description').value)
     try:
-        positions, tips = plan(chain, node.get_parameter('height').value,
-                               node.get_parameter('duration').value)
+        positions, tips, ink = plan(chain, node.get_parameter('height').value,
+                               node.get_parameter('duration').value,
+                               node.get_parameter('lift').value)
     except ValueError as error:
         node.get_logger().error(str(error))
         node.destroy_node()
@@ -141,11 +195,12 @@ def main(args=None):
         stroke.header.stamp = stamp
         stroke.ns = 'drawing'
         stroke.id = 0
-        stroke.type = Marker.LINE_STRIP
+        stroke.type = Marker.LINE_LIST
         stroke.pose.orientation.w = 1.
         stroke.scale.x = 0.003
         stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a = (0.1, 0.8, 1., 1.)
-        stroke.points = [point(p) for p in tips[:index + 1]]
+        stroke.points = [point(p) for i in range(1, index + 1) if ink[i]
+                         for p in (tips[i - 1], tips[i])]
         pen = Marker()
         pen.header = stroke.header
         pen.ns = 'drawing'
@@ -158,7 +213,7 @@ def main(args=None):
         markers.publish(MarkerArray(markers=[stroke, pen]))
 
     node.create_timer(1 / 30, tick)
-    node.get_logger().info('Drawing S on the horizontal plane; holds at the end.')
+    node.get_logger().info('Writing ee528 with pen lifts; holds above the final stroke.')
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

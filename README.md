@@ -103,3 +103,15 @@ ros2 launch nexarm_description gazebo_draw_s.launch.py
 请先关闭其他机械臂演示。模型生成后先留出 5 秒仿真时间移到起点，然后执行 S 轨迹，结束后保持姿态。仿真较慢时，实际等待时间会超过 21 秒。需要 `ros_gz_sim` 和 `ros_gz_bridge`。
 
 该入口使用 Gazebo 的速度式位置跟随控制；夹爪保持闭合，画笔仅有可视几何，不计算笔尖接触力，也不会在 Gazebo 地面留下墨迹。轨迹 Marker 仍发布到 `/drawing_markers`，可用 RViz 查看。Gazebo 实际关节反馈发布在 `/nexarm/joint_states`。已验证模型生成、控制指令桥接以及反馈中笔尖沿水平面移动。
+
+## 当前默认动作：书写 ee528
+
+原有 `draw_s.launch.py` 和 `gazebo_draw_s.launch.py` 入口现默认书写小写 **ee528**。两个 e 使用开口圆弧，5、2 使用贝塞尔曲线，8 使用一条连续交叉曲线，一笔绕完上下两瓣，中途不抬笔。字高约 4.5 厘米，整行宽约 17 厘米，位于底座前方 25–29.5 厘米。画笔仍垂直于夹爪。
+
+每个笔画结束后先竖直抬笔 1.5 厘米，再在空中移到下一笔起点并落笔；最后一笔结束也会抬笔。蓝色 Marker 只显示落笔线段，空中移动不留线。默认约 56 秒完成，细分曲线和逐段平滑会使总时间略长于 `duration` 参数。
+
+```bash
+ros2 launch nexarm_description draw_s.launch.py
+# 抬笔高度单位为米；duration 控制基础书写时长
+ros2 launch nexarm_description draw_s.launch.py lift:=0.02 duration:=60.0
+```
