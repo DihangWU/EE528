@@ -10,6 +10,7 @@
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>
   <depend>std_srvs</depend>
+  <depend>std_msgs</depend>
   <depend>rcl_interfaces</depend>
   <depend>qtbase5-dev</depend>
   <export><build_type>ament_cmake</build_type></export>

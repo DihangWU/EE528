@@ -16,13 +16,19 @@ def test_writing_and_pen_lifts():
     # The tail reaches the outer right edge while leaving the e open.
     assert abs(e[-1, 1] - np.min(e[:, 1])) < 0.001
     assert e[-1, 0] < e[0, 0] - 0.005
-    eight = text_strokes()[-1]
+    eight = text_strokes()[4]
     assert np.allclose(eight[0], eight[-1])
     assert np.allclose(eight[0], eight[len(eight) // 2])
     assert np.ptp(eight[:, 0]) > 0.04
     targets, expected_ink = writing_targets()
     q, tips, ink = plan(chain)
-    assert len(text_strokes()) == 5  # Each character is a single continuous stroke.
+    strokes = text_strokes()
+    assert len(strokes) == 18  # Five first-line strokes and thirteen name strokes.
+    top, bottom = np.vstack(strokes[:5]), np.vstack(strokes[5:])
+    # Both lines share exactly the same left/right ink bounds.
+    assert np.allclose([top[:, 1].min(), top[:, 1].max()],
+                       [bottom[:, 1].min(), bottom[:, 1].max()])
+    assert bottom[:, 0].max() < top[:, 0].min() - .01
     assert np.array_equal(ink, expected_ink)
     # Robot mount is 10 cm above world ground; ink lies on world z=0.
     import xml.etree.ElementTree as ET
@@ -32,8 +38,8 @@ def test_writing_and_pen_lifts():
     assert mount_z == pytest.approx(0.10)
     assert np.allclose(tips[ink, 2] + mount_z, 0., atol=0.0005)
     # Original front writing, with no 90-degree offset at J1.
-    assert np.allclose(targets[0, :2], [.3225, .085])
-    assert np.all(tips[:, 0] >= .2995)
+    assert np.allclose(targets[0, :2], [.3775, .085])
+    assert np.all(tips[:, 0] >= .290)
     assert np.all(np.abs(q[:, 0]) < .4)
     assert np.allclose(tips, targets, atol=0.0005)
     assert tips[-1, 2] == pytest.approx(-0.085, abs=0.0005)
@@ -75,7 +81,7 @@ def test_writing_and_pen_lifts():
     assert np.allclose(tips[edges - 1, 2], -0.10, atol=0.0005)
     starts = np.flatnonzero(ink & ~np.r_[False, ink[:-1]])
     ends = np.flatnonzero(ink & ~np.r_[ink[1:], False])
-    assert len(starts) == len(ends) == 5
+    assert len(starts) == len(ends) == len(strokes)
     for end, start in zip(ends[:-1], starts[1:]):
         travel = targets[end:start]
         assert np.max(travel[:, 2]) == pytest.approx(-0.085)

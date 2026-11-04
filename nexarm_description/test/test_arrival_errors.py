@@ -29,7 +29,7 @@ def test_arrival_error_bounds_and_actual_tip():
     simulation = JointTrackingSimulation(
         expected, [float(j[3].get('lower')) for j in chain[:5]],
         [float(j[3].get('upper')) for j in chain[:5]],
-        [float(j[3].get('velocity')) for j in chain[:5]], error_deg=1.5, seed=42)
+        [float(j[3].get('velocity')) for j in chain[:5]], error_deg=1.5, seed=42, motor_tau=0.0)
     for _ in expected:
         simulation.step()
     assert np.array_equal(actual, simulation.actual)

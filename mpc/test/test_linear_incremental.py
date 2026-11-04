@@ -34,7 +34,7 @@ def test_infeasible_output_constraints_use_reported_bounded_fallback():
 def test_causal_disturbance_rejection_and_reset():
     reference = np.zeros((1500, 2))
     kwargs = dict(reference=reference, lower=[-1, -1], upper=[1, 1],
-                  velocity=[3, 3], error_deg=.2, seed=42)
+                  velocity=[3, 3], error_deg=.2, seed=42, motor_tau=0.0)
     baseline = JointTrackingSimulation(**kwargs)
     corrected = JointTrackingSimulation(**kwargs, mpc_enabled=True)
     for _ in reference:
@@ -59,7 +59,8 @@ def test_causal_disturbance_rejection_and_reset():
 
 def test_zero_error_baseline_and_invalid_configuration():
     reference = np.column_stack((np.linspace(-.1, .1, 100), np.zeros(100)))
-    simulation = JointTrackingSimulation(reference, [-1, -1], [1, 1], [3, 3], error_deg=0)
+    simulation = JointTrackingSimulation(reference, [-1, -1], [1, 1], [3, 3],
+                                         error_deg=0, motor_tau=0.0)
     for _ in reference:
         simulation.step()
     assert np.array_equal(simulation.actual, reference)

@@ -1,0 +1,23 @@
+{
+  "error_deg": 0.2,
+  "seed": 42,
+  "motor_tau_s": 0.0,
+  "sample_hz": 30,
+  "samples": 1722,
+  "evaluation": "pen-down samples",
+  "off": {
+    "pen_xyz_rms_mm": 0.8835828214765993,
+    "pen_xy_rms_mm": 0.7194519468917621,
+    "joint_rms_deg": 0.08044201994762157
+  },
+  "on": {
+    "pen_xyz_rms_mm": 0.8244219893239689,
+    "pen_xy_rms_mm": 0.6703666949500918,
+    "joint_rms_deg": 0.07529971632526149,
+    "fallbacks": 0,
+    "active_joint_qps": 0,
+    "solve_mean_ms": 0.11130888675656653,
+    "solve_p99_ms": 0.1401254297343257
+  },
+  "pen_xyz_improvement_percent": 6.695561606071488
+}

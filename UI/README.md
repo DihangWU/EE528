@@ -32,3 +32,5 @@ ros2 launch nexarm_description angle_panel.launch.py
 ```
 
 依赖：ROS 2 Jazzy、当前工作区、`python3-tk`、`xacro` 和桌面图形环境。
+
+每个关节行新增 **归零**，只把该行输入和滑块置 0，不立即执行；点击“移动到指定角度”应用。原 **全部归零** 按钮仍会执行整组关节回零。

@@ -33,14 +33,14 @@ class AnglePanel:
         self.started = time.monotonic()
         self.next_check = 0.
         root.title('NexArm · 关节角度控制')
-        root.minsize(760, 470)
+        root.minsize(840, 470)
         frame = ttk.Frame(root, padding=22)
         frame.pack(fill='both', expand=True)
         ttk.Label(frame, text='指定关节姿态', font=('', 20, 'bold')).grid(
-            row=0, column=0, columnspan=4, sticky='w', pady=(0, 8))
+            row=0, column=0, columnspan=5, sticky='w', pady=(0, 8))
         ttk.Label(frame, text='输入模型关节角度（°），点击“移动到指定角度”或按 Enter。').grid(
-            row=1, column=0, columnspan=4, sticky='w', pady=(0, 18))
-        for col, label in enumerate(['关节', '目标角度 / °', '滑动调整', '允许范围 / °']):
+            row=1, column=0, columnspan=5, sticky='w', pady=(0, 18))
+        for col, label in enumerate(['关节', '目标角度 / °', '滑动调整', '允许范围 / °', '操作']):
             ttk.Label(frame, text=label).grid(row=2, column=col, sticky='w', padx=8)
         for i, name in enumerate(self.names):
             limit = self.model.find(f"joint[@name='{name}']/limit")
@@ -62,22 +62,24 @@ class AnglePanel:
             slider.bind('<ButtonRelease-1>', lambda event: self.apply())
             ttk.Label(frame, text=f'{lower:.2f} ～ {upper:.2f}').grid(
                 row=i + 3, column=3, sticky='w', padx=8)
+            ttk.Button(frame, text='归零', command=lambda index=i: self.zero_joint(index)).grid(
+                row=i + 3, column=4, padx=8)
             self.entries.append(value)
             self.sliders.append(slider)
         frame.columnconfigure(2, weight=1)
         actions = ttk.Frame(frame)
-        actions.grid(row=9, column=0, columnspan=4, sticky='w', pady=(16, 10))
+        actions.grid(row=9, column=0, columnspan=5, sticky='w', pady=(16, 10))
         ttk.Button(actions, text='移动到指定角度', command=self.apply).pack(side='left', padx=(0, 10))
         ttk.Button(actions, text='全部归零', command=self.zero).pack(side='left', padx=(0, 10))
         ttk.Button(actions, text='停止移动', command=self.stop).pack(side='left')
         self.status = tk.StringVar(value='就绪 · 角度以 URDF 零位为基准')
         self.connection = tk.StringVar()
         ttk.Label(frame, textvariable=self.status, wraplength=700).grid(
-            row=10, column=0, columnspan=4, sticky='w', pady=6)
+            row=10, column=0, columnspan=5, sticky='w', pady=6)
         ttk.Label(frame, textvariable=self.connection, wraplength=700).grid(
-            row=11, column=0, columnspan=4, sticky='w')
+            row=11, column=0, columnspan=5, sticky='w')
         ttk.Label(frame, text='仅控制 RViz 模型。使用前请关闭写字演示、关节滑块及 Gazebo 演示。',
-                  wraplength=700).grid(row=12, column=0, columnspan=4, sticky='w', pady=(12, 0))
+                  wraplength=700).grid(row=12, column=0, columnspan=5, sticky='w', pady=(12, 0))
         self.closed = False
         root.protocol('WM_DELETE_WINDOW', self.close)
         self.tick()
@@ -102,6 +104,12 @@ class AnglePanel:
             slider.set(value)
         self.status.set('正在移动到指定角度…')
         return True
+
+    def zero_joint(self, index):
+        """Reset an input without moving until the user applies the pose."""
+        self.sliders[index].set(0)
+        self.entries[index].set('0')
+        self.status.set(f'{self.names[index]} 输入已置 0，点击“移动到指定角度”执行。')
 
     def zero(self):
         for entry in self.entries:
