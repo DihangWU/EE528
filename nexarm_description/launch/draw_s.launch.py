@@ -32,7 +32,8 @@ def generate_launch_description():
         DeclareLaunchArgument('lift', default_value='0.015'),
         DeclareLaunchArgument('error_deg', default_value='0.2'),
         DeclareLaunchArgument('error_seed', default_value='42'),
-        DeclareLaunchArgument('mpc_enabled', default_value='false'),
+        *[DeclareLaunchArgument(f'{mode}_enabled', default_value='false')
+          for mode in ('pid', 'lqr', 'mpc')],
         DeclareLaunchArgument('motor_tau', default_value='0.2'),
         *[DeclareLaunchArgument(f'motor_tau_j{i}', default_value=str(tau))
           for i, tau in enumerate((0.6, 0.5, 0.6, 0.4, 0.0, 0.0), start=1)],
@@ -44,7 +45,8 @@ def generate_launch_description():
              parameters=[{'robot_description': description,
                           **{f'motor_tau_j{i}': ParameterValue(LaunchConfiguration(f'motor_tau_j{i}'), value_type=float) for i in range(1, 7)},
                           'motor_tau': ParameterValue(LaunchConfiguration('motor_tau'), value_type=float),
-                          'mpc_enabled': ParameterValue(LaunchConfiguration('mpc_enabled'), value_type=bool),
+                          **{f'{mode}_enabled': ParameterValue(LaunchConfiguration(f'{mode}_enabled'), value_type=bool)
+                             for mode in ('pid', 'lqr', 'mpc')},
                           'mpc_horizon': ParameterValue(LaunchConfiguration('mpc_horizon'), value_type=int),
                           'mpc_control_horizon': ParameterValue(LaunchConfiguration('mpc_control_horizon'), value_type=int),
                           'error_deg': ParameterValue(LaunchConfiguration('error_deg'), value_type=float),

@@ -74,10 +74,10 @@ J1–J6 的目标函数与约束可分离，所以分别求解六个凸二次规
 
 ```bash
 ros2 topic echo /writing/pen_error_mm
-python3 mpc/compare.py --error-deg 0.2 --motor-tau 0.2 --seed 42
+python3 algorithm/mpc/compare.py --error-deg 0.2 --motor-tau 0.2 --seed 42
 ```
 
-对比脚本对 MPC 关闭和开启使用完全相同的参考轨迹、电机时间常数、初始状态和扰动序列，统计仅包含落笔点。结果写到 `mpc/results/comparison.json`。当前 seed=42、误差±0.2°、motor_tau=0.2 秒：
+对比脚本对 MPC 关闭和开启使用完全相同的参考轨迹、电机时间常数、初始状态和扰动序列，统计仅包含落笔点。结果写到 `algorithm/results/comparison.json`。以下为旧版单行字迹的历史数据；当前双行轨迹请重新运行比较。历史 seed=42、误差±0.2°、motor_tau=0.2 秒：
 
 | 指标 | MPC 关闭 | MPC 开启 |
 |---|---:|---:|
@@ -94,7 +94,7 @@ MPC 开关作用于 RViz 的模拟关节闭环。Gazebo 和实物接入需要用
 
 ```bash
 source install/setup.bash
-python3 -m pytest mpc/test nexarm_description/test/test_draw_s.py nexarm_description/test/test_arrival_errors.py -q
+python3 -m pytest algorithm/mpc/test nexarm_description/test/test_draw_s.py nexarm_description/test/test_arrival_errors.py -q
 ```
 
 测试包含主动激活的角度/速率约束、不可行回退、未来随机误差不可见、重播复位、无误差基线、一阶阶跃响应、滞后预测与独立电机滚动计算一致性，以及原字形与抬笔动作。
@@ -128,7 +128,7 @@ RViz 实际线宽为 0.6 mm，参考灰线为 0.3 mm；MPC 关闭时实际字迹
 
 RViz 面板显示 `/writing/pen_error_mm` 的实时三维跟踪误差和 `/writing/pen_rms_mm` 的本次累计落笔 RMS。两项是同一采样时刻的误差，因此能观察电机滞后；单独看画完后的线形容易忽略沿曲线方向的滞后。RMS 在重播后清零，抬笔采样不纳入累计值。
 
-纯滞后可通过 `python3 mpc/compare.py --error-deg 0 --motor-tau 0.2 --output mpc/results/comparison_lag_only.json` 复现。当前结果：无 MPC 三维跟踪 RMS 2.7504 mm、XY 轮廓 RMS 0.2517 mm；有 MPC 分别为 0.0290 mm、0.0019 mm。该实验无随机新扰动且模型完全匹配，所以补偿幅度比有随机误差时更大，不代表实物必然达到此效果。
+纯滞后可通过 `python3 algorithm/mpc/compare.py --error-deg 0 --motor-tau 0.2 --output algorithm/mpc/results/comparison_lag_only.json` 复现。当前结果：无 MPC 三维跟踪 RMS 2.7504 mm、XY 轮廓 RMS 0.2517 mm；有 MPC 分别为 0.0290 mm、0.0019 mm。该实验无随机新扰动且模型完全匹配，所以补偿幅度比有随机误差时更大，不代表实物必然达到此效果。
 
 ## 面板设置响应时间
 
@@ -153,7 +153,11 @@ ros2 launch nexarm_description draw_s.launch.py motor_tau:=0.2
 # 单独覆盖 J2、J3、J4，其余继承统一值
 ros2 launch nexarm_description draw_s.launch.py motor_tau:=0.2 motor_tau_j2:=0.1 motor_tau_j3:=0.4 motor_tau_j4:=0.15
 # 同一六舵机模型的离线开关对比
-python3 mpc/compare.py --motor-taus 0.2 0.1 0.4 0.15 0.2 0.2 --output mpc/results/comparison_individual.json
+python3 algorithm/mpc/compare.py --motor-taus 0.2 0.1 0.4 0.15 0.2 0.2 --output algorithm/mpc/results/comparison_individual.json
 ```
 
 `motor_tau_j1`～`motor_tau_j6` 默认值为 -1，表示继承 `motor_tau`；0 表示该舵机无滞后。面板每次提交显式六项值，因此之后仅通过 ROS 参数改变统一值，不会覆盖已经显式指定的单项；可用面板“统一到六项”或把单项重新设为 -1 来统一。线性增广模型中原先的标量 a 变为对角矩阵，每个关节的预测响应、Hessian 和约束矩阵独立构建。所有值必须有限且非负（继承标记 -1 除外）。
+
+## 三控制器入口
+
+MPC 源目录现为 `algorithm/mpc/`，Python 包名保持 `nexarm_mpc`。当前双行轨迹、PID/LQR/MPC 面板选项及四模式比较说明见 [上级算法说明](../README.md)。此文中的旧单行数值与 results 数据为历史实验。比较脚本当前默认执行 off/pid/lqr/mpc 四种模式，结果键由旧 `on` 改为 `mpc`。

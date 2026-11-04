@@ -110,6 +110,15 @@ def text_strokes():
         strokes.append(np.column_stack((.305 + .035 * uv[:, 1],
                                         right - (uv[:, 0] - umin) / (umax - umin)
                                         * (right - left))))
+    # Read from behind the base looking toward the pen: screen-right is +Y,
+    # and the tops of the letters point toward -X. Rotate each row in place,
+    # keeping the name nearer the base (above) and ee528 farther away (below).
+    # Stroke order remains ee528 first, then WU Dihang.
+    for start, end in ((0, 5), (5, len(strokes))):
+        row = np.vstack(strokes[start:end])
+        center_twice = row.min(axis=0) + row.max(axis=0)
+        for index in range(start, end):
+            strokes[index] = center_twice - strokes[index]
     return strokes
 
 
@@ -217,7 +226,7 @@ def main(args=None):
     import signal
     from geometry_msgs.msg import Point
     from sensor_msgs.msg import JointState
-    from std_msgs.msg import Float64
+    from std_msgs.msg import Bool, Float64
     from std_srvs.srv import Trigger
     from rcl_interfaces.msg import SetParametersResult
     from nexarm_mpc.simulation import JointTrackingSimulation
@@ -235,6 +244,8 @@ def main(args=None):
     node.declare_parameter('error_deg', 0.0)
     node.declare_parameter('error_seed', 42)
     node.declare_parameter('mpc_enabled', False)
+    node.declare_parameter('pid_enabled', False)
+    node.declare_parameter('lqr_enabled', False)
     node.declare_parameter('mpc_horizon', 12)
     node.declare_parameter('mpc_control_horizon', 8)
     node.declare_parameter('motor_tau', 0.0)
@@ -254,16 +265,20 @@ def main(args=None):
             root.find("joint[@name='gripper_base_joint']/limit")]
 
         def make_simulation():
-            enabled = node.get_parameter('mpc_enabled').value
-            if gazebo and enabled:
-                raise ValueError('MPC currently supports simulated RViz feedback only.')
+            modes = [mode for mode in ('pid', 'lqr', 'mpc')
+                     if node.get_parameter(mode + '_enabled').value]
+            if len(modes) > 1:
+                raise ValueError('Only one of PID, LQR and MPC can be enabled')
+            mode = modes[0] if modes else 'off'
+            if gazebo and mode != 'off':
+                raise ValueError('Controllers currently support simulated RViz feedback only.')
             return JointTrackingSimulation(
                 reference_positions,
                 [float(limit.get('lower')) for limit in servo_limits],
                 [float(limit.get('upper')) for limit in servo_limits],
                 [float(limit.get('velocity')) for limit in servo_limits],
                 error_deg=node.get_parameter('error_deg').value,
-                seed=node.get_parameter('error_seed').value, mpc_enabled=enabled,
+                seed=node.get_parameter('error_seed').value, control_mode=mode,
                 horizon=node.get_parameter('mpc_horizon').value,
                 control_horizon=node.get_parameter('mpc_control_horizon').value,
                 motor_tau=resolve_motor_taus(node.get_parameter('motor_tau').value,
@@ -271,7 +286,6 @@ def main(args=None):
 
         simulation = make_simulation()
         active_error_deg = node.get_parameter('error_deg').value
-        mpc_enabled = node.get_parameter('mpc_enabled').value
         tips = np.full_like(reference_tips, np.nan)
     except (KeyboardInterrupt, ExternalShutdownException):
         signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -286,7 +300,7 @@ def main(args=None):
         return
     def validate_pending_settings(parameters):
         # ROS parameters are pending settings; the active run uses a snapshot.
-        names = ['error_deg', 'error_seed', 'mpc_enabled', 'mpc_horizon',
+        names = ['error_deg', 'error_seed', 'pid_enabled', 'lqr_enabled', 'mpc_enabled', 'mpc_horizon',
                  'mpc_control_horizon', 'motor_tau'] + tau_names
         values = {name: node.get_parameter(name).value for name in names}
         values.update({p.name: p.value for p in parameters if p.name in names})
@@ -302,8 +316,11 @@ def main(args=None):
             return SetParametersResult(successful=False, reason='error_seed must be >= 0')
         if not 1 <= values['mpc_control_horizon'] <= values['mpc_horizon'] <= 100:
             return SetParametersResult(successful=False, reason='Require 1 <= Nc <= Np <= 100')
-        if gazebo and values['mpc_enabled']:
-            return SetParametersResult(successful=False, reason='MPC requires RViz simulated feedback')
+        enabled_count = sum(values[mode + '_enabled'] for mode in ('pid', 'lqr', 'mpc'))
+        if enabled_count > 1:
+            return SetParametersResult(successful=False, reason='Only one controller can be enabled')
+        if gazebo and enabled_count:
+            return SetParametersResult(successful=False, reason='Controllers require RViz simulated feedback')
         return SetParametersResult(successful=True)
 
     node.add_on_set_parameters_callback(validate_pending_settings)
@@ -311,12 +328,14 @@ def main(args=None):
     markers = node.create_publisher(MarkerArray, '/drawing_markers', 1)
     pen_error = node.create_publisher(Float64, '/writing/pen_error_mm', 10)
     pen_rms = node.create_publisher(Float64, '/writing/pen_rms_mm', 10)
+    started_status = node.create_publisher(Bool, '/writing/started', 1)
     commands = [node.create_publisher(Float64, f'/nexarm/joint{i}/cmd_pos', 10)
                 for i in range(1, 6)] if gazebo else []
     if gazebo:
         commands.extend(node.create_publisher(Float64, f'/nexarm/{name}/cmd_pos', 10)
                         for name in ['gripper_base_joint', 'left_jaw_joint', 'right_jaw_joint'])
     start = None
+    running = False
     stats_reported = False
     ink_error_squared_sum = 0.0
     ink_error_count = 0
@@ -334,10 +353,15 @@ def main(args=None):
         now = node.get_clock().now()
         if now.nanoseconds == 0:
             return
-        if start is None:
-            start = now
-        elapsed = max(0., (now - start).nanoseconds / 1e9 - (5. if gazebo else 0.))
-        index = min(int(elapsed * 30), len(reference_positions) - 1)
+        # Publish the prepared pose and ideal path while waiting for the user.
+        # Do not advance the plant, consume noise samples or accumulate ink yet.
+        index = -1
+        if running:
+            if start is None:
+                start = now
+            elapsed = max(0., (now - start).nanoseconds / 1e9 - (5. if gazebo else 0.))
+            index = min(int(elapsed * 30), len(reference_positions) - 1)
+        started_status.publish(Bool(data=running))
         # Process every fixed 1/30 s plant step, including when a UI frame is late.
         while simulation.index < index:
             actual = simulation.step()
@@ -351,17 +375,18 @@ def main(args=None):
                 ink_error_count += 1
                 stroke_vertices.extend([point(tips[sample - 1]), point(tips[sample])])
         q = simulation.measured
-        error_mm = float(np.linalg.norm(tips[index] - reference_tips[index]) * 1000)
+        error_mm = (float(np.linalg.norm(tips[index] - reference_tips[index]) * 1000)
+                    if running else 0.0)
         pen_error.publish(Float64(data=error_mm))
         rms_mm = math.sqrt(ink_error_squared_sum / ink_error_count) * 1000 if ink_error_count else 0.
         pen_rms.publish(Float64(data=rms_mm))
-        if index == len(reference_positions) - 1 and not stats_reported:
+        if running and index == len(reference_positions) - 1 and not stats_reported:
             errors = tips[ink] - reference_tips[ink]
             rms = float(np.sqrt(np.mean(np.sum(errors ** 2, axis=1))) * 1000)
             extra = ''
             if simulation.controller:
                 controller = simulation.controller
-                extra = (f', QP fallbacks={controller.fallbacks}, '
+                extra = (f', control={simulation.control_mode}, fallbacks={controller.fallbacks}, '
                          f'solve p99={np.percentile(controller.solve_times, 99)*1000:.3f} ms')
             node.get_logger().info(f'Playback finished: pen RMS={rms:.4f} mm{extra}')
             stats_reported = True
@@ -385,7 +410,8 @@ def main(args=None):
         stroke.pose.orientation.w = 1.
         stroke.scale.x = 0.0006
         stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a = (
-            (0.1, 0.8, 1., 1.) if mpc_enabled else (1., 0.3, 0.15, 1.))
+            {'off': (1., .3, .15, 1.), 'pid': (.2, 1., .3, 1.),
+             'lqr': (.8, .4, 1., 1.), 'mpc': (.1, .8, 1., 1.)}[simulation.control_mode])
         stroke.points = stroke_vertices
         if not stroke.points:
             stroke.action = Marker.DELETE
@@ -410,7 +436,7 @@ def main(args=None):
         markers.publish(MarkerArray(markers=visible))
 
     def restart_writing(request, response):
-        nonlocal start, stats_reported, simulation, active_error_deg, mpc_enabled
+        nonlocal start, running, stats_reported, simulation, active_error_deg
         nonlocal ink_error_squared_sum, ink_error_count
         # Construct the new run first; a failure must leave the current run intact.
         try:
@@ -420,8 +446,9 @@ def main(args=None):
             response.message = str(error)
             return response
         simulation = candidate
+        running = True
+        started_status.publish(Bool(data=True))
         active_error_deg = node.get_parameter('error_deg').value
-        mpc_enabled = node.get_parameter('mpc_enabled').value
         start = None
         stats_reported = False
         tips.fill(np.nan)
@@ -437,7 +464,7 @@ def main(args=None):
         response.message = 'Writing restarted from the first sample.'
         node.get_logger().info(
             f'Restart requested: cleared ink and reset playback; '
-            f'active error={active_error_deg} deg, MPC={mpc_enabled}, '
+            f'active error={active_error_deg} deg, control={simulation.control_mode}, '
             f'motor taus={simulation.motor_tau.tolist()} s.')
         return response
 
@@ -447,9 +474,10 @@ def main(args=None):
     node.get_logger().info(
         f'Writing ee528 / WU Dihang; motor arrival error bound={error_deg} deg, '
         f'seed={node.get_parameter("error_seed").value}, '
-        f'Linear Constrained Incremental MPC={mpc_enabled}, '
+        f'control={simulation.control_mode}, '
         f'motor taus={simulation.motor_tau.tolist()} s. '
-        'Colored stroke follows actual joints (MPC on: cyan, off: orange-red); gray is ideal.')
+        'Ready; waiting for Start in RViz. '
+        'Actual ink: off orange-red, PID green, LQR purple, MPC cyan; gray is ideal.')
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):

@@ -175,7 +175,7 @@ RViz 配置默认关闭 TF 坐标轴显示，保留 Displays 中的 TF 勾选项
 
 ## Linear Constrained Incremental MPC 开关
 
-算法与实验说明位于 [mpc/README.md](mpc/README.md)。重新编译并加载工作区后，可同时指定误差与 MPC 开关：
+算法与实验说明位于 [algorithm/mpc/README.md](algorithm/mpc/README.md)。重新编译并加载工作区后，可同时指定误差与 MPC 开关：
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -205,13 +205,13 @@ ros2 launch nexarm_description draw_s.launch.py motor_tau:=0.2 error_deg:=0.2 mp
 ros2 launch nexarm_description draw_s.launch.py motor_tau:=0.2 error_deg:=0.2 mpc_enabled:=true
 ```
 
-当前同种子下完整字迹三维 RMS 误差改善约 71.1%。这是一阶仿真模型的结果，不代表实物保证；详细模型、实验条件和关闭滞后的方式见 [mpc/README.md](mpc/README.md)。
+当前同种子下完整字迹三维 RMS 误差改善约 71.1%。这是一阶仿真模型的结果，不代表实物保证；详细模型、实验条件和关闭滞后的方式见 [algorithm/mpc/README.md](algorithm/mpc/README.md)。
 
 ### 查看 MPC 的轨迹差异
 
 实际笔迹默认线宽改为 **0.6 毫米**，理想参考灰线为 **0.3 毫米**。关闭 MPC 的实际轨迹为橙红色，开启为青蓝色。理想字形始终显示，随机误差为 0 时也能对照响应滞后效果。可放大并从上方观察，笔的实体直径仍为 6 毫米。
 
-“约 71% 改善”指同一时刻的跟踪误差，包含沿轨迹方向的时间滞后，不能直接当作静态字形改善。对默认模型补测同笔画上的最近线段距离，平面轮廓 RMS 从约 0.554 mm 降到 0.473 mm；差异小于原来的 3 mm 线宽，原图较难看出。`mpc/compare.py` 同时输出时间对齐误差和轮廓误差。
+“约 71% 改善”指同一时刻的跟踪误差，包含沿轨迹方向的时间滞后，不能直接当作静态字形改善。对默认模型补测同笔画上的最近线段距离，平面轮廓 RMS 从约 0.554 mm 降到 0.473 mm；差异小于原来的 3 mm 线宽，原图较难看出。`algorithm/mpc/compare.py` 同时输出时间对齐误差和轮廓误差。
 
 ### 纯滞后实验与面板误差读数
 
@@ -223,7 +223,7 @@ ros2 launch nexarm_description draw_s.launch.py error_deg:=0.0 motor_tau:=0.2 mp
 
 误差输入为 0 后需点击“重新运行”才会关闭随机误差。关闭随机偏差不代表关闭电机滞后；然后可取消/勾选 MPC，分别重新运行比较面板中的读数。
 
-纯滞后（所有关节 tau=0.2 s，无随机偏差）实验结果见 `mpc/results/comparison_lag_only.json`：关闭 MPC 时，时间对齐笔尖三维 RMS 约 2.750 mm，但不计时间差的 XY 轮廓 RMS 仅 0.252 mm；开启 MPC 后分别约 0.029 mm、0.0019 mm。同一时间常数作用于所有关节时，主要影响到达时间，最终线形不一定明显改变。静态字形相近不表示动态误差为零。
+纯滞后（所有关节 tau=0.2 s，无随机偏差）实验结果见 `algorithm/mpc/results/comparison_lag_only.json`：关闭 MPC 时，时间对齐笔尖三维 RMS 约 2.750 mm，但不计时间差的 XY 轮廓 RMS 仅 0.252 mm；开启 MPC 后分别约 0.029 mm、0.0019 mm。同一时间常数作用于所有关节时，主要影响到达时间，最终线形不一定明显改变。静态字形相近不表示动态误差为零。
 
 ### 面板调整电机响应时间
 
@@ -238,3 +238,9 @@ ros2 launch nexarm_description draw_s.launch.py error_deg:=0.0 motor_tau:=0.2 mp
 夹爪在写字时持续夹持画笔；它的目标不变，所以调整 J6 的 τ 不会改变笔尖轨迹。第六个执行器仍进入响应模型，夹爪目标变化时会体现其独立响应速度。MPC 使用各舵机对应的时间常数。
 
 角度输入 UI 也有逐行“归零”（只把该行输入置 0，点击移动执行）和“全部归零”（移动全部关节到模型零位）。参数面板的归零不等于机械臂姿态归零。
+
+## PID / LQR / MPC 三种仿真
+
+当前算法统一位于 `algorithm/`，使用方式和完整双行轨迹对比见 [algorithm/README.md](algorithm/README.md)。面板“控制优化”包含“启用 MPC”、PID、LQR 三个互斥复选框；全部不选时关闭优化。选择、误差与六个响应时间一起在“重新运行”后应用，归零和恢复也包括算法选择。
+
+命令行可分别使用 `pid_enabled:=true`、`lqr_enabled:=true`、`mpc_enabled:=true`，每次仅开启一个。原 `mpc/` 代码已迁至 `algorithm/mpc/`，ROS 包名仍为 `nexarm_mpc`。上文单行轨迹及旧参数的数字属于历史实验，当前双行仿真请参照新说明。

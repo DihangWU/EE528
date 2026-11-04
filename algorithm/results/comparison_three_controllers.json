@@ -1,0 +1,57 @@
+{
+  "error_deg": 0.2,
+  "seed": 42,
+  "motor_tau_s": 0.2,
+  "motor_taus_s": [
+    0.6,
+    0.5,
+    0.6,
+    0.4,
+    0.0,
+    0.0
+  ],
+  "sample_hz": 30,
+  "samples": 2525,
+  "evaluation": "pen-down samples",
+  "off": {
+    "pen_xy_contour_rms_mm": 3.246287238696001,
+    "pen_xyz_rms_mm": 10.484090748354202,
+    "pen_xy_rms_mm": 10.170619633158488,
+    "joint_rms_deg": 1.723913162424785
+  },
+  "pid": {
+    "pen_xy_contour_rms_mm": 2.148263855537125,
+    "pen_xyz_rms_mm": 8.397294072091958,
+    "pen_xy_rms_mm": 8.128205006970118,
+    "joint_rms_deg": 1.2808706559917133,
+    "fallbacks": 0,
+    "active_joint_qps": 0,
+    "solve_mean_ms": 0.009766567530611007,
+    "solve_p99_ms": 0.017411160188203142
+  },
+  "lqr": {
+    "pen_xy_contour_rms_mm": 0.5172278176703152,
+    "pen_xyz_rms_mm": 1.7486509184570387,
+    "pen_xy_rms_mm": 1.6205184245936177,
+    "joint_rms_deg": 0.22082158595655738,
+    "fallbacks": 0,
+    "active_joint_qps": 0,
+    "solve_mean_ms": 0.0034467881174926936,
+    "solve_p99_ms": 0.009905999831971712
+  },
+  "mpc": {
+    "pen_xy_contour_rms_mm": 0.4868675672153087,
+    "pen_xyz_rms_mm": 0.8928078348543556,
+    "pen_xy_rms_mm": 0.7106630482842435,
+    "joint_rms_deg": 0.07821971574923205,
+    "fallbacks": 0,
+    "active_joint_qps": 407,
+    "solve_mean_ms": 0.32345104475350334,
+    "solve_p99_ms": 2.3801364401151646
+  },
+  "pen_xyz_improvement_percent": {
+    "pid": 19.90441256519866,
+    "lqr": 83.32091012535786,
+    "mpc": 91.48416532931567
+  }
+}

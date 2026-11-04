@@ -30,7 +30,7 @@ ReplayPanel::ReplayPanel(QWidget * parent) : rviz_common::Panel(parent)
       field->setSuffix(QString::fromUtf8(" 秒"));
       field->setValue(0.2);
       field->setKeyboardTracking(false);
-      field->setToolTip(QString::fromUtf8("一阶响应时间常数 τ，0 关闭滞后。不是纯等待延迟；重新运行后生效。"));
+      field->setToolTip(QString::fromUtf8("一阶响应时间常数 τ，0 关闭滞后。不是纯等待延迟；运行后生效。"));
       editors_.push_back(field);
       connect(field, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
         [this](double) {editsChanged();});
@@ -87,19 +87,44 @@ ReplayPanel::ReplayPanel(QWidget * parent) : rviz_common::Panel(parent)
   for (size_t i = 0; i < motor_taus_.size(); ++i) {
     const QString number = QString::number(i + 1);
     motor_taus_[i] = make_time("motor_response_j" + number + "_seconds");
-    const QString label = i == 5 ? QString::fromUtf8("J6 夹爪 τ") : "J" + number + " τ";
+    const QString label = "J" + number + " τ";
     form->addRow(label, make_row(motor_taus_[i], "motor_tau_zero_j" + number));
   }
-  mpc_ = new QCheckBox(QString::fromUtf8("启用 MPC"), this);
+  mpc_ = new QCheckBox(QString::fromUtf8("MPC"), this);
   mpc_->setObjectName("mpc_enabled_checkbox");
   mpc_->setToolTip("Linear Constrained Incremental MPC");
   editors_.push_back(mpc_);
   connect(mpc_, &QCheckBox::toggled, this, [this](bool) {editsChanged();});
-  form->addRow(QString::fromUtf8("控制优化"), mpc_);
+  pid_ = new QCheckBox("PID", this);
+  pid_->setObjectName("pid_enabled_checkbox");
+  pid_->setToolTip(QString::fromUtf8("带积分抗饱和及微分滤波的 PID；运行后生效。"));
+  lqr_ = new QCheckBox("LQR", this);
+  lqr_->setObjectName("lqr_enabled_checkbox");
+  lqr_->setToolTip(QString::fromUtf8("基于六电机响应模型的离散 LQR；运行后生效。"));
+  auto * controls = new QWidget(this);
+  auto * controls_row = new QHBoxLayout(controls);
+  controls_row->setContentsMargins(0, 0, 0, 0);
+  controls_row->addWidget(mpc_);
+  controls_row->addWidget(pid_);
+  controls_row->addWidget(lqr_);
+  controls_row->addStretch();
+  const std::array<QCheckBox *, 3> choices = {mpc_, pid_, lqr_};
+  for (auto * choice : choices) {
+    if (choice != mpc_) {editors_.push_back(choice);}
+    connect(choice, &QCheckBox::toggled, this, [this, choice, choices](bool checked) {
+        if (checked) {
+          for (auto * other : choices) {
+            if (other != choice) {
+              const QSignalBlocker block(other);
+              other->setChecked(false);
+            }
+          }
+        }
+        editsChanged();
+      });
+  }
+  form->addRow(QString::fromUtf8("控制优化"), controls);
   layout->addLayout(form);
-  auto * hint = new QLabel(QString::fromUtf8("统一填写或单独修改，点击重新运行后生效。归零只修改待用参数。"), this);
-  hint->setWordWrap(true);
-  layout->addWidget(hint);
   auto * zero_all = new QPushButton(QString::fromUtf8("参数全部归零"), this);
   zero_all->setObjectName("zero_all_settings");
   auto zero_font = zero_all->font();
@@ -108,17 +133,26 @@ ReplayPanel::ReplayPanel(QWidget * parent) : rviz_common::Panel(parent)
   zero_all->setFixedWidth(116);
   zero_all->setFixedHeight(38);
   zero_all->setAutoDefault(false);
-  zero_all->setToolTip(QString::fromUtf8("将待用参数全部置 0；点击重新运行后应用。"));
+  zero_all->setToolTip(QString::fromUtf8("将待用参数全部置 0；点击运行按钮后应用。"));
   editors_.push_back(zero_all);
   connect(zero_all, &QPushButton::clicked, this, &ReplayPanel::zeroSettings);
-  auto * restore = new QPushButton(QString::fromUtf8("恢复上一次参数"), this);
+  auto * restore = new QPushButton(QString::fromUtf8("恢复上一次"), this);
   restore->setObjectName("restore_previous_settings");
   restore->setFixedHeight(38);
+  restore->setFont(zero_font);
   restore->setAutoDefault(false);
-  restore->setToolTip(QString::fromUtf8("恢复归零前或上一次运行的参数；点击重新运行后应用。"));
+  restore->setToolTip(QString::fromUtf8("恢复归零前或上一次运行的参数；点击运行按钮后应用。"));
   editors_.push_back(restore);
   connect(restore, &QPushButton::clicked, this, &ReplayPanel::restoreSettings);
-  button_ = new QPushButton(QString::fromUtf8("重新运行"), this);
+  auto * initial = new QPushButton(QString::fromUtf8("恢复初始参数"), this);
+  initial->setObjectName("restore_initial_settings");
+  initial->setFixedHeight(38);
+  initial->setFont(zero_font);
+  initial->setAutoDefault(false);
+  initial->setToolTip(QString::fromUtf8("恢复本次启动时读取的参数；点击运行按钮后应用。"));
+  editors_.push_back(initial);
+  connect(initial, &QPushButton::clicked, this, &ReplayPanel::restoreInitialSettings);
+  button_ = new QPushButton(QString::fromUtf8("加载中…"), this);
   button_->setObjectName("restart_writing_button");
   button_->setFixedHeight(38);
   button_->setEnabled(false);
@@ -128,6 +162,7 @@ ReplayPanel::ReplayPanel(QWidget * parent) : rviz_common::Panel(parent)
   layout->addWidget(button_);
   auto * reset_row = new QHBoxLayout();
   reset_row->setContentsMargins(0, 8, 0, 2);
+  reset_row->addWidget(initial, 1);
   reset_row->addWidget(restore, 1);
   reset_row->addWidget(zero_all);
   layout->addLayout(reset_row);
@@ -159,6 +194,10 @@ void ReplayPanel::onInitialize()
     "/writing/pen_rms_mm", 1, [this](std_msgs::msg::Float64::ConstSharedPtr message) {
       tracking_rms_->setText(QString::fromUtf8("本次落笔 RMS：%1 mm").arg(message->data, 0, 'f', 3));
     });
+  started_subscription_ = node_->create_subscription<std_msgs::msg::Bool>(
+    "/writing/started", 1, [this](std_msgs::msg::Bool::ConstSharedPtr message) {
+      has_started_ = message->data;
+    });
   timer_->start(100);
 }
 
@@ -181,6 +220,8 @@ ReplayPanel::Settings ReplayPanel::readSettings()
   settings.error = error_->value();
   settings.uniform = motor_tau_->value();
   settings.mpc = mpc_->isChecked();
+  settings.pid = pid_->isChecked();
+  settings.lqr = lqr_->isChecked();
   for (size_t i = 0; i < motor_taus_.size(); ++i) {
     motor_taus_[i]->interpretText();
     settings.taus[i] = motor_taus_[i]->value();
@@ -188,34 +229,49 @@ ReplayPanel::Settings ReplayPanel::readSettings()
   return settings;
 }
 
+void ReplayPanel::fillSettings(const Settings & settings)
+{
+  error_->setValue(settings.error);
+  motor_tau_->setValue(settings.uniform);
+  for (size_t i = 0; i < motor_taus_.size(); ++i) {
+    motor_taus_[i]->setValue(settings.taus[i]);
+  }
+  mpc_->setChecked(settings.mpc);
+  pid_->setChecked(settings.pid);
+  lqr_->setChecked(settings.lqr);
+}
+
 void ReplayPanel::restoreSettings()
 {
-  error_->setValue(previous_settings_.error);
-  motor_tau_->setValue(previous_settings_.uniform);
-  for (size_t i = 0; i < motor_taus_.size(); ++i) {
-    motor_taus_[i]->setValue(previous_settings_.taus[i]);
-  }
-  mpc_->setChecked(previous_settings_.mpc);
-  status_->setText(QString::fromUtf8("已恢复上一次参数，点击重新运行后应用。"));
+  fillSettings(previous_settings_);
+  status_->setText(QString::fromUtf8("已恢复上一次参数，点击运行按钮后应用。"));
+}
+
+void ReplayPanel::restoreInitialSettings()
+{
+  fillSettings(initial_settings_);
+  status_->setText(QString::fromUtf8("已恢复初始参数，点击运行按钮后应用。"));
 }
 
 void ReplayPanel::zeroSettings()
 {
   const auto current = readSettings();
-  bool nonzero = current.error != 0 || current.uniform != 0 || current.mpc;
+  bool nonzero = current.error != 0 || current.uniform != 0 || current.mpc || current.pid || current.lqr;
   for (double tau : current.taus) {nonzero = nonzero || tau != 0;}
   if (nonzero) {previous_settings_ = current;}
   error_->setValue(0);
   motor_tau_->setValue(0);
   setAllTimes(0);
   mpc_->setChecked(false);
+  pid_->setChecked(false);
+  lqr_->setChecked(false);
   editsChanged();
 }
 
 void ReplayPanel::editsChanged()
 {
   if (synced_ && phase_ == Phase::Idle) {
-    status_->setText(QString::fromUtf8("设置已修改，将在下次重新运行时应用。"));
+    status_->setText(QString::fromUtf8("设置已修改，将在点击运行按钮后应用。"));
   }
 }
 
@@ -231,7 +287,9 @@ void ReplayPanel::restart()
   std::vector<rclcpp::Parameter> settings = {
     rclcpp::Parameter("error_deg", submitted_error_),
     rclcpp::Parameter("motor_tau", motor_tau_->value()),
-    rclcpp::Parameter("mpc_enabled", submitted_mpc_)};
+    rclcpp::Parameter("mpc_enabled", submitted_mpc_),
+    rclcpp::Parameter("pid_enabled", submitted_settings_.pid),
+    rclcpp::Parameter("lqr_enabled", submitted_settings_.lqr)};
   for (size_t i = 0; i < motor_taus_.size(); ++i) {
     motor_taus_[i]->interpretText();
     submitted_taus_[i] = motor_taus_[i]->value();
@@ -252,7 +310,8 @@ void ReplayPanel::sendReplay()
   future_ = result.future.share();
   sent_ = std::chrono::steady_clock::now();
   phase_ = Phase::Restarting;
-  status_->setText(QString::fromUtf8("正在重新开始…"));
+  status_->setText(has_started_ ? QString::fromUtf8("正在重新开始…") :
+    QString::fromUtf8("正在开始运行…"));
 }
 
 void ReplayPanel::poll()
@@ -265,10 +324,13 @@ void ReplayPanel::poll()
       sync_future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
     {
       auto values = sync_future_.get();
-      if (values.size() != 9) {throw std::runtime_error("Incomplete writing settings");}
-      const QSignalBlocker block_error(error_), block_mpc(mpc_), block_tau(motor_tau_);
+      if (values.size() != 11) {throw std::runtime_error("Incomplete writing settings");}
+      const QSignalBlocker block_error(error_), block_mpc(mpc_), block_tau(motor_tau_),
+        block_pid(pid_), block_lqr(lqr_);
       error_->setValue(values[0].as_double());
       mpc_->setChecked(values[1].as_bool());
+      pid_->setChecked(values[9].as_bool());
+      lqr_->setChecked(values[10].as_bool());
       const double uniform = values[2].as_double();
       motor_tau_->setValue(uniform);
       for (size_t i = 0; i < motor_taus_.size(); ++i) {
@@ -278,9 +340,14 @@ void ReplayPanel::poll()
       }
       active_settings_ = readSettings();
       previous_settings_ = active_settings_;
+      if (!initial_captured_) {
+        initial_settings_ = active_settings_;
+        initial_captured_ = true;
+      }
       synced_ = true;
       phase_ = Phase::Idle;
-      status_->setText(QString::fromUtf8("六舵机设置已读取，点击可从头重播。"));
+      status_->setText(has_started_ ? QString::fromUtf8("准备完成，可点击重新运行。") :
+        QString::fromUtf8("准备完成，等待点击开始运行。"));
     } else if (phase_ == Phase::Applying &&
       settings_future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
     {
@@ -294,6 +361,7 @@ void ReplayPanel::poll()
     {
       auto response = future_.get();
       if (response->success) {
+        has_started_ = true;
         previous_settings_ = active_settings_;
         active_settings_ = submitted_settings_;
       }
@@ -301,9 +369,10 @@ void ReplayPanel::poll()
       QStringList times;
       for (double value : submitted_taus_) {times << QString::number(value, 'f', 3);}
       status_->setText(response->success ?
-        QString::fromUtf8("已重播 · 误差 ±%1° · MPC %2\nJ1–J6 τ：%3 s")
+        QString::fromUtf8("已启动 · 误差 ±%1° · 控制 %2\nJ1–J6 τ：%3 s")
         .arg(submitted_error_, 0, 'f', 3)
-        .arg(submitted_mpc_ ? QString::fromUtf8("开启") : QString::fromUtf8("关闭"))
+        .arg(submitted_settings_.mpc ? "MPC" : submitted_settings_.pid ? "PID" :
+          submitted_settings_.lqr ? "LQR" : QString::fromUtf8("关闭"))
         .arg(times.join(", ")) :
         QString::fromUtf8("重播失败：") + QString::fromStdString(response->message));
     }
@@ -326,11 +395,15 @@ void ReplayPanel::poll()
   } else if (!synced_ && phase_ == Phase::Idle) {
     std::vector<std::string> names = {"error_deg", "mpc_enabled", "motor_tau"};
     for (size_t i = 1; i <= 6; ++i) {names.push_back("motor_tau_j" + std::to_string(i));}
+    names.push_back("pid_enabled");
+    names.push_back("lqr_enabled");
     sync_future_ = parameters_->get_parameters(names);
     sent_ = std::chrono::steady_clock::now();
     phase_ = Phase::Syncing;
   }
   const bool editable = ready && synced_ && phase_ == Phase::Idle;
+  button_->setText(!synced_ ? QString::fromUtf8("加载中…") :
+    has_started_ ? QString::fromUtf8("重新运行") : QString::fromUtf8("开始运行"));
   button_->setEnabled(editable);
   enableEditors(editable);
 }

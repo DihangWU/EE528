@@ -14,8 +14,8 @@ def test_writing_and_pen_lifts():
     chain = chain_from_xml(model.read_text())
     e = text_strokes()[0]
     # The tail reaches the outer right edge while leaving the e open.
-    assert abs(e[-1, 1] - np.min(e[:, 1])) < 0.001
-    assert e[-1, 0] < e[0, 0] - 0.005
+    assert abs(e[-1, 1] - np.max(e[:, 1])) < 0.001
+    assert e[-1, 0] > e[0, 0] + 0.005
     eight = text_strokes()[4]
     assert np.allclose(eight[0], eight[-1])
     assert np.allclose(eight[0], eight[len(eight) // 2])
@@ -24,11 +24,11 @@ def test_writing_and_pen_lifts():
     q, tips, ink = plan(chain)
     strokes = text_strokes()
     assert len(strokes) == 18  # Five first-line strokes and thirteen name strokes.
-    top, bottom = np.vstack(strokes[:5]), np.vstack(strokes[5:])
+    lower_line, upper_line = np.vstack(strokes[:5]), np.vstack(strokes[5:])
     # Both lines share exactly the same left/right ink bounds.
-    assert np.allclose([top[:, 1].min(), top[:, 1].max()],
-                       [bottom[:, 1].min(), bottom[:, 1].max()])
-    assert bottom[:, 0].max() < top[:, 0].min() - .01
+    assert np.allclose([lower_line[:, 1].min(), lower_line[:, 1].max()],
+                       [upper_line[:, 1].min(), upper_line[:, 1].max()])
+    assert upper_line[:, 0].max() < lower_line[:, 0].min() - .01
     assert np.array_equal(ink, expected_ink)
     # Robot mount is 10 cm above world ground; ink lies on world z=0.
     import xml.etree.ElementTree as ET
@@ -38,7 +38,15 @@ def test_writing_and_pen_lifts():
     assert mount_z == pytest.approx(0.10)
     assert np.allclose(tips[ink, 2] + mount_z, 0., atol=0.0005)
     # Original front writing, with no 90-degree offset at J1.
-    assert np.allclose(targets[0, :2], [.3775, .085])
+    # From the requested view, +Y reads left-to-right, -X points to letter tops.
+    assert targets[0, 1] == pytest.approx(-.084)
+    assert np.mean(strokes[0][:, 1]) < np.mean(strokes[4][:, 1])
+    w = strokes[5]
+    assert w[0, 0] < w[1, 0]  # W starts at the top, then descends.
+    assert w[0, 1] < w[-1, 1]
+    assert np.min(lower_line[:, 0]) > np.max(upper_line[:, 0])
+    # The final g descender points below its oval in this camera view.
+    assert strokes[-1][:, 0].max() > strokes[-2][:, 0].max() + .005
     assert np.all(tips[:, 0] >= .290)
     assert np.all(np.abs(q[:, 0]) < .4)
     assert np.allclose(tips, targets, atol=0.0005)

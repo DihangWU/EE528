@@ -342,7 +342,7 @@
   <!-- Pen is part of the robot in RViz and Gazebo, following gripper TF. -->
     <link name="pen_link">
       <inertial><mass value="0.002"/><inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" ixz="0" iyz="0"/></inertial>
-      <visual><origin xyz="0 0 -0.0625" rpy="0 0 0"/><geometry><cylinder radius="0.003" length="0.125"/></geometry><material name="pen_orange"><color rgba="1 0.5 0 1"/></material></visual>
+      <visual><origin xyz="0 0 -0.0625" rpy="0 0 0"/><geometry><cylinder radius="0.003" length="0.125"/></geometry><material name="pen_orange"><color rgba="1 0.5 0 0.5"/></material></visual>
     </link>
     <joint name="pen_joint" type="fixed"><parent link="gripper_link"/><child link="pen_link"/><origin xyz="0.04 0 0"/></joint>
   <xacro:if value="$(arg gazebo_demo)">

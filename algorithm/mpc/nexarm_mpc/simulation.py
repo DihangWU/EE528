@@ -1,4 +1,4 @@
-"""Causal simulated motor feedback shared by MPC-on and MPC-off runs."""
+"""Causal simulated motor feedback shared by off, PID, LQR and MPC runs."""
 import math
 
 import numpy as np
@@ -32,7 +32,7 @@ class JointTrackingSimulation:
     """
 
     def __init__(self, reference, lower, upper, velocity, error_deg=0.2, seed=42,
-                 mpc_enabled=False, horizon=12, control_horizon=8, motor_tau=0.2, error_joints=None):
+                 mpc_enabled=False, horizon=12, control_horizon=8, motor_tau=0.2, error_joints=None, control_mode=None):
         self.reference = np.asarray(reference, dtype=float).copy()
         self.lower, self.upper = np.asarray(lower), np.asarray(upper)
         if (self.reference.ndim != 2 or len(self.reference) == 0
@@ -49,10 +49,22 @@ class JointTrackingSimulation:
         self._errors = np.zeros_like(self.reference)
         self._errors[:, :noisy_joints] = arrival_errors(
             len(reference), noisy_joints, error_deg, seed)
-        self.controller = (LinearConstrainedIncrementalMPC(
-            lower, upper, velocity, horizon=horizon, control_horizon=control_horizon,
-            motor_tau=self.motor_tau)
-            if mpc_enabled else None)
+        self.control_mode = ('mpc' if mpc_enabled else 'off') if control_mode is None else control_mode
+        if self.control_mode not in ('off', 'pid', 'lqr', 'mpc'):
+            raise ValueError('control_mode must be off, pid, lqr or mpc')
+        if mpc_enabled and self.control_mode != 'mpc':
+            raise ValueError('mpc_enabled conflicts with control_mode')
+        self.controller = None
+        if self.control_mode == 'pid':
+            from nexarm_pid.controller import PIDController
+            self.controller = PIDController(lower, upper, velocity)
+        elif self.control_mode == 'lqr':
+            from nexarm_lqr.controller import LQRController
+            self.controller = LQRController(lower, upper, velocity, motor_tau=self.motor_tau)
+        elif self.control_mode == 'mpc':
+            self.controller = LinearConstrainedIncrementalMPC(
+                lower, upper, velocity, horizon=horizon, control_horizon=control_horizon,
+                motor_tau=self.motor_tau)
         self.reset()
 
     def reset(self):

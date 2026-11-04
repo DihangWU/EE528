@@ -14,6 +14,7 @@
 #include <rviz_common/panel.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 namespace nexarm_rviz_plugins
 {
@@ -38,9 +39,15 @@ private:
     double uniform{0.2};
     std::array<double, 6> taus{};
     bool mpc{false};
+    bool pid{false};
+    bool lqr{false};
   };
   Settings readSettings();
   void restoreSettings();
+  void restoreInitialSettings();
+  void fillSettings(const Settings & settings);
+  Settings initial_settings_;
+  bool initial_captured_{false};
   Settings active_settings_;
   Settings previous_settings_;
   Settings submitted_settings_;
@@ -51,6 +58,8 @@ private:
   std::array<QDoubleSpinBox *, 6> motor_taus_;
   std::vector<QWidget *> editors_;
   QCheckBox * mpc_;
+  QCheckBox * pid_;
+  QCheckBox * lqr_;
   QLabel * status_;
   QLabel * tracking_error_;
   QLabel * tracking_rms_;
@@ -60,11 +69,13 @@ private:
   std::shared_ptr<rclcpp::AsyncParametersClient> parameters_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr error_subscription_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr rms_subscription_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr started_subscription_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future_;
   std::shared_future<std::vector<rclcpp::Parameter>> sync_future_;
   std::shared_future<rcl_interfaces::msg::SetParametersResult> settings_future_;
   Phase phase_{Phase::Idle};
   bool synced_{false};
+  bool has_started_{false};
   double submitted_error_{0.2};
   std::array<double, 6> submitted_taus_{};
   bool submitted_mpc_{false};

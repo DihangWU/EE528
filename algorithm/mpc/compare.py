@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare MPC off/on with identical disturbances on the full writing path."""
+"""Compare off/PID/LQR/MPC with identical disturbances on the full writing path."""
 import argparse
 import json
 import xml.etree.ElementTree as ET
@@ -36,7 +36,9 @@ def main():
     parser.add_argument('--motor-tau', type=float, default=.2)
     parser.add_argument('--motor-taus', nargs=6, type=float, default=None, metavar='SECONDS')
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--output', default='mpc/results/comparison.json')
+    parser.add_argument('--output', default='algorithm/results/comparison.json')
+    parser.add_argument('--modes', nargs='+', choices=['off', 'pid', 'lqr', 'mpc'],
+                        default=['off', 'pid', 'lqr', 'mpc'])
     args = parser.parse_args()
     model = Path(get_package_share_directory('nexarm_description')) / 'urdf/nexarm.urdf.xacro'
     xml = xacro.process_file(str(model)).toxml()
@@ -49,12 +51,12 @@ def main():
     results = {'error_deg': args.error_deg, 'seed': args.seed,
                'motor_tau_s': args.motor_tau, 'motor_taus_s': taus.tolist(),
                'sample_hz': 30, 'samples': len(q), 'evaluation': 'pen-down samples'}
-    for mode in ['off', 'on']:
+    for mode in args.modes:
         simulation = JointTrackingSimulation(
             reference, [float(limit.get('lower')) for limit in limits],
             [float(limit.get('upper')) for limit in limits],
             [float(limit.get('velocity')) for limit in limits],
-            error_deg=args.error_deg, seed=args.seed, mpc_enabled=mode == 'on',
+            error_deg=args.error_deg, seed=args.seed, control_mode=mode,
             motor_tau=taus, error_joints=5)
         tips = []
         for _ in reference:
@@ -76,9 +78,10 @@ def main():
                 'solve_mean_ms': float(np.mean(simulation.controller.solve_times) * 1000),
                 'solve_p99_ms': float(np.percentile(simulation.controller.solve_times, 99) * 1000),
             })
-    results['pen_xyz_improvement_percent'] = 100 * (
-        1 - results['on']['pen_xyz_rms_mm'] / results['off']['pen_xyz_rms_mm']
-    ) if results['off']['pen_xyz_rms_mm'] > 0 else None
+    if 'off' in results and results['off']['pen_xyz_rms_mm'] > 0:
+        results['pen_xyz_improvement_percent'] = {
+            mode: 100 * (1 - results[mode]['pen_xyz_rms_mm'] / results['off']['pen_xyz_rms_mm'])
+            for mode in args.modes if mode != 'off'}
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(results, indent=2) + '\n')

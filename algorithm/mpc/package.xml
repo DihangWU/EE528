@@ -5,6 +5,7 @@
   <maintainer email="liangfuyuan@example.com">maple</maintainer>
   <license>Apache-2.0</license>
   <exec_depend>python3-numpy</exec_depend><exec_depend>python3-scipy</exec_depend>
+  <exec_depend>nexarm_pid</exec_depend><exec_depend>nexarm_lqr</exec_depend>
   <test_depend>python3-pytest</test_depend>
   <export><build_type>ament_python</build_type></export>
 </package>
