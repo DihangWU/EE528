@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <robot name="NexArm" xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:arg name="gazebo_demo" default="false"/>
   <xacro:arg name="prefix" default=""/>
   <link name="base_link">
     <inertial>
@@ -283,7 +284,7 @@
     <child link="right_jaw_link"/>
     <axis xyz="0 1 0"/>
     <limit effort="0" lower="0" upper="0" velocity="3.14"/>
-    <mimic joint="gripper_base_joint" multiplier="0.05" offset="0" />
+    <xacro:unless value="$(arg gazebo_demo)"><mimic joint="gripper_base_joint" multiplier="0.05" offset="0" /></xacro:unless>
   </joint>
   <link name="left_jaw_link">
     <inertial>
@@ -313,7 +314,7 @@
     <child link="left_jaw_link"/>
     <axis xyz="0 1 0"/>
     <limit effort="0" lower="0" upper="0" velocity="3.14"/>
-    <mimic joint="gripper_base_joint" multiplier="-0.05" offset="0" />
+    <xacro:unless value="$(arg gazebo_demo)"><mimic joint="gripper_base_joint" multiplier="-0.05" offset="0" /></xacro:unless>
   </joint>
   
   <!-- Import jetarm ros_control description -->
@@ -337,4 +338,39 @@
   
   
   
+
+  <xacro:if value="$(arg gazebo_demo)">
+    <link name="pen_link">
+      <inertial><mass value="0.002"/><inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" ixz="0" iyz="0"/></inertial>
+      <visual><origin xyz="0 0 -0.05" rpy="0 0 0"/><geometry><cylinder radius="0.003" length="0.10"/></geometry><material name="pen_orange"><color rgba="1 0.5 0 1"/></material></visual>
+    </link>
+    <joint name="pen_joint" type="fixed"><parent link="gripper_link"/><child link="pen_link"/><origin xyz="0 0 0"/></joint>
+    <gazebo>
+      <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher"><topic>/nexarm/joint_states</topic></plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>joint1</joint_name><topic>/nexarm/joint1/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands><cmd_max>1.0</cmd_max><cmd_min>-1.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>joint2</joint_name><topic>/nexarm/joint2/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands><cmd_max>1.0</cmd_max><cmd_min>-1.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>joint3</joint_name><topic>/nexarm/joint3/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands><cmd_max>1.0</cmd_max><cmd_min>-1.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>joint4</joint_name><topic>/nexarm/joint4/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands><cmd_max>1.0</cmd_max><cmd_min>-1.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>joint5</joint_name><topic>/nexarm/joint5/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands><cmd_max>1.0</cmd_max><cmd_min>-1.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>gripper_base_joint</joint_name><topic>/nexarm/gripper_base_joint/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands><cmd_max>1.0</cmd_max><cmd_min>-1.0</cmd_min>
+      </plugin>
+    </gazebo>
+  </xacro:if>
 </robot>

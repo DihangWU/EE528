@@ -71,3 +71,35 @@ NexArmSim/
 ├── .gitignore
 └── README.md
 ```
+
+## 在水平地面画 S
+
+新增独立的 RViz 运动学演示。先关闭原来的 `display.launch.py`，避免关节滑块与轨迹节点同时发布关节状态，然后执行：
+
+```bash
+cd /home/maple/Desktop/NexArmSim
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install --packages-select nexarm_description
+source install/setup.bash
+ros2 launch nexarm_description draw_s.launch.py
+```
+
+机械臂夹爪下方垂直安装一支 10 厘米的虚拟画笔，与夹爪伸出方向垂直，笔尖朝下，在 `base_link` 的 XY 平面（`z=0`）画出长 14 厘米、宽 7 厘米的圆弧 S，由两个相切的 270° 圆弧构成，圆弧半径 3.5 厘米，中心位于底座前方 27 厘米（X 范围 23.5–30.5 厘米）。橙色线表示画笔，蓝色线表示笔尖已走过的轨迹；默认 16 秒完成，随后停在终点。重新启动可重画。
+
+可通过 `height:=0.01 duration:=20.0` 调整绘画平面高度（米）和时长（秒，至少 4 秒）。节点启动时先检查全路径可达性、关节限位和速度，无法完成时输出错误并停止。依赖 `python3-numpy`、`python3-scipy`、`rclpy`、`sensor_msgs`、`geometry_msgs` 和 `visualization_msgs`。
+
+这是 RViz 中的虚拟画笔演示，尚未实现碰撞检查、物理接触或真实硬件控制。已验证完整轨迹数值检查、编译及 ROS 节点启动；无桌面测试中的 RViz 离屏渲染失败，图形效果需在桌面终端查看。
+
+## Gazebo 中运行画 S
+
+Gazebo Harmonic 入口会启动带地面的世界、生成机械臂和橙色虚拟笔，并通过 `ros_gz_bridge` 向 Gazebo 的关节位置控制器发送指令：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+ros2 launch nexarm_description gazebo_draw_s.launch.py
+```
+
+请先关闭其他机械臂演示。模型生成后先留出 5 秒仿真时间移到起点，然后执行 S 轨迹，结束后保持姿态。仿真较慢时，实际等待时间会超过 21 秒。需要 `ros_gz_sim` 和 `ros_gz_bridge`。
+
+该入口使用 Gazebo 的速度式位置跟随控制；夹爪保持闭合，画笔仅有可视几何，不计算笔尖接触力，也不会在 Gazebo 地面留下墨迹。轨迹 Marker 仍发布到 `/drawing_markers`，可用 RViz 查看。Gazebo 实际关节反馈发布在 `/nexarm/joint_states`。已验证模型生成、控制指令桥接以及反馈中笔尖沿水平面移动。

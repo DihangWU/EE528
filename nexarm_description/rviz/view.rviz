@@ -30,6 +30,15 @@ Panels:
 Visualization Manager:
   Class: ""
   Displays:
+    - Class: rviz_default_plugins/MarkerArray
+      Name: MarkerArray
+      Enabled: true
+      Topic:
+        Value: /drawing_markers
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+      Value: true
     - Alpha: 0.5
       Cell Size: 1
       Class: rviz_default_plugins/Grid
