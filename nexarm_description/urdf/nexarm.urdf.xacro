@@ -283,7 +283,7 @@
     <parent link="gripper_link"/>
     <child link="right_jaw_link"/>
     <axis xyz="0 1 0"/>
-    <limit effort="0" lower="0" upper="0" velocity="3.14"/>
+    <limit effort="0" lower="0" upper="0.025" velocity="3.14"/>
     <xacro:unless value="$(arg gazebo_demo)"><mimic joint="gripper_base_joint" multiplier="0.05" offset="0" /></xacro:unless>
   </joint>
   <link name="left_jaw_link">
@@ -313,7 +313,7 @@
     <parent link="gripper_link"/>
     <child link="left_jaw_link"/>
     <axis xyz="0 1 0"/>
-    <limit effort="0" lower="0" upper="0" velocity="3.14"/>
+    <limit effort="0" lower="-0.025" upper="0" velocity="3.14"/>
     <xacro:unless value="$(arg gazebo_demo)"><mimic joint="gripper_base_joint" multiplier="-0.05" offset="0" /></xacro:unless>
   </joint>
   
@@ -331,7 +331,7 @@
   <joint name="world_to_base_joint" type="fixed">
     <parent link="world"/>
     <child link="base_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>  <!-- No mounting-height offset -->
+    <origin xyz="0 0 0.10" rpy="0 0 0"/>  <!-- 10 cm mounting-height offset; world ground stays at zero -->
   </joint>
    
   <xacro:nexarm_gazebo prefix="$(arg prefix)"></xacro:nexarm_gazebo> 
@@ -339,12 +339,13 @@
   
   
 
-  <xacro:if value="$(arg gazebo_demo)">
+  <!-- Pen is part of the robot in RViz and Gazebo, following gripper TF. -->
     <link name="pen_link">
       <inertial><mass value="0.002"/><inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" ixz="0" iyz="0"/></inertial>
-      <visual><origin xyz="0 0 -0.0125" rpy="0 0 0"/><geometry><cylinder radius="0.003" length="0.025"/></geometry><material name="pen_orange"><color rgba="1 0.5 0 1"/></material></visual>
+      <visual><origin xyz="0 0 -0.0625" rpy="0 0 0"/><geometry><cylinder radius="0.003" length="0.125"/></geometry><material name="pen_orange"><color rgba="1 0.5 0 1"/></material></visual>
     </link>
-    <joint name="pen_joint" type="fixed"><parent link="gripper_link"/><child link="pen_link"/><origin xyz="0 0 0"/></joint>
+    <joint name="pen_joint" type="fixed"><parent link="gripper_link"/><child link="pen_link"/><origin xyz="0.04 0 0"/></joint>
+  <xacro:if value="$(arg gazebo_demo)">
     <gazebo>
       <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher"><topic>/nexarm/joint_states</topic></plugin>
       <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
@@ -370,6 +371,14 @@
       <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
         <joint_name>gripper_base_joint</joint_name><topic>/nexarm/gripper_base_joint/cmd_pos</topic>
         <use_velocity_commands>true</use_velocity_commands><cmd_max>1.0</cmd_max><cmd_min>-1.0</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>left_jaw_joint</joint_name><topic>/nexarm/left_jaw_joint/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands><cmd_max>0.1</cmd_max><cmd_min>-0.1</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>right_jaw_joint</joint_name><topic>/nexarm/right_jaw_joint/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands><cmd_max>0.1</cmd_max><cmd_min>-0.1</cmd_min>
       </plugin>
     </gazebo>
   </xacro:if>

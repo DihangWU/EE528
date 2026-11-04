@@ -24,6 +24,8 @@ def generate_launch_description():
                '/nexarm/joint_states@sensor_msgs/msg/JointState[gz.msgs.Model']
     bridges += [f'/nexarm/joint{i}/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double'
                 for i in range(1, 6)]
+    bridges += [f'/nexarm/{name}/cmd_pos@std_msgs/msg/Float64]gz.msgs.Double'
+                for name in ['gripper_base_joint', 'left_jaw_joint', 'right_jaw_joint']]
     return LaunchDescription([
         DeclareLaunchArgument('gz_args', default_value='-r ' + os.path.join(share, 'worlds/drawing.sdf')),
         IncludeLaunchDescription(PythonLaunchDescriptionSource(os.path.join(

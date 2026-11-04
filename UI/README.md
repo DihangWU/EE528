@@ -6,7 +6,7 @@
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --packages-select nexarm_description
+colcon build --symlink-install --packages-up-to nexarm_description
 ```
 
 启动面板、机械臂 TF 和 RViz：

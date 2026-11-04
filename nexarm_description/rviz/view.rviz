@@ -35,7 +35,7 @@ Visualization Manager:
       Enabled: true
       Topic:
         Value: /drawing_markers
-        Depth: 5
+        Depth: 1
         Durability Policy: Volatile
         Reliability Policy: Reliable
       Value: true
@@ -154,7 +154,7 @@ Visualization Manager:
       Value: true
       Visual Enabled: true
     - Class: rviz_default_plugins/TF
-      Enabled: true
+      Enabled: false
       Frame Timeout: 15
       Frames:
         All Enabled: true
@@ -212,7 +212,7 @@ Visualization Manager:
                       r_link:
                         {}
       Update Interval: 0
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

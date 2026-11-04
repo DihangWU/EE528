@@ -14,7 +14,7 @@ def main():
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', default='trajectories/ee528.csv')
-    parser.add_argument('--height', type=float, default=0.0)
+    parser.add_argument('--height', type=float, default=-0.10)
     parser.add_argument('--duration', type=float, default=50.0)
     parser.add_argument('--lift', type=float, default=0.015)
     args = parser.parse_args()
@@ -24,7 +24,7 @@ def main():
     output = Path(args.output).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open('w', newline='') as stream:
-        writer = csv.writer(stream)
+        writer = csv.writer(stream, lineterminator="\n")
         writer.writerow(['time_s'] + [f'joint{i}_deg' for i in range(1, 6)])
         for index, q in enumerate(positions):
             angles = [*map(float, q), 0.0]

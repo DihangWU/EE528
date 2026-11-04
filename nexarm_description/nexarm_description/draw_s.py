@@ -7,7 +7,9 @@ from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
 
-PEN_LENGTH = 0.025
+PEN_LENGTH = 0.125
+PEN_FORWARD = 0.04
+GRIPPER_HOLD = (0.038561 - 0.0131701054 - 0.003) / 0.05
 
 
 def chain_from_xml(xml):
@@ -30,11 +32,11 @@ def chain_from_xml(xml):
 
 
 def forward(chain, q):
-    """Return gripper pose, with joint5 held at zero."""
+    """Return gripper pose; an omitted joint5 angle defaults to zero."""
     pose = np.eye(4)
     for i, (origin, axis, kind, _) in enumerate(chain):
         pose = pose @ origin
-        if kind == 'revolute' and i < 4:
+        if kind == 'revolute' and i < len(q):
             rotation = np.eye(4)
             rotation[:3, :3] = Rotation.from_rotvec(axis * q[i]).as_matrix()
             pose = pose @ rotation
@@ -72,7 +74,7 @@ def text_strokes():
     return strokes
 
 
-def writing_targets(height=0.0, duration=50.0, lift=0.015):
+def writing_targets(height=-0.10, duration=50.0, lift=0.015):
     """Sample pen-down strokes and vertical lift/travel/lower transitions."""
     if (not all(math.isfinite(v) for v in [height, duration, lift])
             or duration < 4 or lift <= 0):
@@ -108,7 +110,7 @@ def writing_targets(height=0.0, duration=50.0, lift=0.015):
     return targets, np.array(ink, dtype=bool)
 
 
-def plan(chain, height=0.0, duration=50.0, lift=0.015):
+def plan(chain, height=-0.10, duration=50.0, lift=0.015):
     """Preflight every writing and pen-up point before publishing motion."""
     targets, ink = writing_targets(height, duration, lift)
     limits = ([float(j[3].get('lower')) for j in chain[:4]],
@@ -120,13 +122,13 @@ def plan(chain, height=0.0, duration=50.0, lift=0.015):
     for target in targets:
         def residual(angles):
             pose = forward(chain, angles)
-            tip = pose[:3, 3] + -pose[:3, 2] * PEN_LENGTH
+            tip = pose[:3, 3] + pose[:3, 0] * PEN_FORWARD - pose[:3, 2] * PEN_LENGTH
             return np.r_[tip - target, 0.1 * (sum(angles[1:]))]
         result = least_squares(residual, q, bounds=limits, gtol=1e-11,
                                ftol=1e-11, xtol=1e-11)
         q = result.x
         pose = forward(chain, q)
-        tip = pose[:3, 3] + -pose[:3, 2] * PEN_LENGTH
+        tip = pose[:3, 3] + pose[:3, 0] * PEN_FORWARD - pose[:3, 2] * PEN_LENGTH
         if np.linalg.norm(tip - target) > 0.0005 or np.linalg.norm(residual(q)) > 0.0005:
             raise ValueError(f'Unreachable drawing point: {target}')
         positions.append(q.copy())
@@ -137,13 +139,49 @@ def plan(chain, height=0.0, duration=50.0, lift=0.015):
     return positions, np.array(tips), ink
 
 
+def simulate_arrival_errors(chain, positions, error_deg=0.2, seed=42):
+    """Apply bounded, time-varying motor position error to J1--J5.
+
+    error_deg bounds the additive angle error before joint-limit clipping.
+    A fixed seed reproduces the same independent per-motor disturbance.
+    No controller, compensator, or physical contact model is included.
+    """
+    if not math.isfinite(error_deg) or error_deg < 0:
+        raise ValueError('error_deg must be finite and nonnegative')
+    if not isinstance(seed, int) or seed < 0:
+        raise ValueError('error_seed must be a nonnegative integer')
+    requested = np.column_stack((positions, np.zeros(len(positions))))
+    actual = requested.copy()
+    if error_deg:
+        rng = np.random.default_rng(seed)
+        amplitude = math.radians(error_deg)
+        innovations = rng.uniform(-amplitude, amplitude, requested.shape)
+        error = np.zeros(5)
+        lower = np.array([float(j[3].get('lower')) for j in chain[:5]])
+        upper = np.array([float(j[3].get('upper')) for j in chain[:5]])
+        for i, innovation in enumerate(innovations):
+            # Correlated arrival jitter, bounded by error_deg at every sample.
+            error = 0.35 * error + 0.65 * innovation
+            actual[i] = np.clip(requested[i] + error, lower, upper)
+    tips = []
+    for q in actual:
+        pose = forward(chain, q)
+        tips.append(pose[:3, 3] + pose[:3, 0] * PEN_FORWARD - pose[:3, 2] * PEN_LENGTH)
+    return actual, np.array(tips)
+
+
 def main(args=None):
     """Publish joint states and visible pen strokes for RViz."""
     import rclpy
     from rclpy.node import Node
+    from rclpy.executors import ExternalShutdownException
+    import signal
     from geometry_msgs.msg import Point
     from sensor_msgs.msg import JointState
     from std_msgs.msg import Float64
+    from std_srvs.srv import Trigger
+    from rcl_interfaces.msg import SetParametersResult
+    from nexarm_mpc.simulation import JointTrackingSimulation
     from visualization_msgs.msg import Marker, MarkerArray
 
     rclpy.init(args=args)
@@ -151,46 +189,127 @@ def main(args=None):
     node.declare_parameter('robot_description', '')
     node.declare_parameter('gazebo', False)
     gazebo = node.get_parameter('gazebo').value
-    node.declare_parameter('height', 0.0)
+    node.declare_parameter('height', -0.10)
     node.declare_parameter('duration', 50.0)
     node.declare_parameter('lift', 0.015)
+    node.declare_parameter('error_deg', 0.0)
+    node.declare_parameter('error_seed', 42)
+    node.declare_parameter('mpc_enabled', False)
+    node.declare_parameter('mpc_horizon', 12)
+    node.declare_parameter('mpc_control_horizon', 8)
     chain = chain_from_xml(node.get_parameter('robot_description').value)
     try:
         positions, tips, ink = plan(chain, node.get_parameter('height').value,
                                node.get_parameter('duration').value,
                                node.get_parameter('lift').value)
+        reference_tips = tips.copy()
+        reference_positions = np.column_stack((positions, np.zeros(len(positions))))
+
+        def make_simulation():
+            enabled = node.get_parameter('mpc_enabled').value
+            if gazebo and enabled:
+                raise ValueError('MPC currently supports simulated RViz feedback only.')
+            return JointTrackingSimulation(
+                reference_positions,
+                [float(j[3].get('lower')) for j in chain[:5]],
+                [float(j[3].get('upper')) for j in chain[:5]],
+                [float(j[3].get('velocity')) for j in chain[:5]],
+                error_deg=node.get_parameter('error_deg').value,
+                seed=node.get_parameter('error_seed').value, mpc_enabled=enabled,
+                horizon=node.get_parameter('mpc_horizon').value,
+                control_horizon=node.get_parameter('mpc_control_horizon').value)
+
+        simulation = make_simulation()
+        active_error_deg = node.get_parameter('error_deg').value
+        mpc_enabled = node.get_parameter('mpc_enabled').value
+        tips = np.full_like(reference_tips, np.nan)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+        return
     except ValueError as error:
         node.get_logger().error(str(error))
         node.destroy_node()
         rclpy.shutdown()
         return
+    def validate_pending_settings(parameters):
+        # ROS parameters are pending settings; the active run uses a snapshot.
+        names = ['error_deg', 'error_seed', 'mpc_enabled', 'mpc_horizon',
+                 'mpc_control_horizon']
+        values = {name: node.get_parameter(name).value for name in names}
+        values.update({p.name: p.value for p in parameters if p.name in names})
+        if not math.isfinite(values['error_deg']) or values['error_deg'] < 0:
+            return SetParametersResult(successful=False, reason='error_deg must be finite and >= 0')
+        if values['error_seed'] < 0:
+            return SetParametersResult(successful=False, reason='error_seed must be >= 0')
+        if not 1 <= values['mpc_control_horizon'] <= values['mpc_horizon'] <= 100:
+            return SetParametersResult(successful=False, reason='Require 1 <= Nc <= Np <= 100')
+        if gazebo and values['mpc_enabled']:
+            return SetParametersResult(successful=False, reason='MPC requires RViz simulated feedback')
+        return SetParametersResult(successful=True)
+
+    node.add_on_set_parameters_callback(validate_pending_settings)
     joints = node.create_publisher(JointState, '/joint_states', 10)
-    markers = node.create_publisher(MarkerArray, '/drawing_markers', 10)
+    markers = node.create_publisher(MarkerArray, '/drawing_markers', 1)
+    pen_error = node.create_publisher(Float64, '/writing/pen_error_mm', 10)
     commands = [node.create_publisher(Float64, f'/nexarm/joint{i}/cmd_pos', 10)
                 for i in range(1, 6)] if gazebo else []
+    if gazebo:
+        commands.extend(node.create_publisher(Float64, f'/nexarm/{name}/cmd_pos', 10)
+                        for name in ['gripper_base_joint', 'left_jaw_joint', 'right_jaw_joint'])
     start = None
+    stats_reported = False
 
     def point(p):
         return Point(x=float(p[0]), y=float(p[1]), z=float(p[2]))
 
+    # Actual stroke vertices are appended only after feedback has been observed.
+    stroke_vertices = []
+    reference_vertices = [point(p) for i in range(1, len(reference_tips)) if ink[i]
+                          for p in (reference_tips[i - 1], reference_tips[i])]
+
     def tick():
-        nonlocal start
+        nonlocal start, stats_reported
         now = node.get_clock().now()
         if now.nanoseconds == 0:
             return
         if start is None:
             start = now
         elapsed = max(0., (now - start).nanoseconds / 1e9 - (5. if gazebo else 0.))
-        index = min(int(elapsed * 30), len(positions) - 1)
-        q = positions[index]
+        index = min(int(elapsed * 30), len(reference_positions) - 1)
+        # Process every fixed 1/30 s plant step, including when a UI frame is late.
+        while simulation.index < index:
+            actual = simulation.step()
+            sample = simulation.index
+            pose = forward(chain, actual)
+            tips[sample] = (pose[:3, 3] + PEN_FORWARD * pose[:3, 0]
+                            - PEN_LENGTH * pose[:3, 2])
+            if ink[sample]:
+                stroke_vertices.extend([point(tips[sample - 1]), point(tips[sample])])
+        q = simulation.measured
+        error_mm = float(np.linalg.norm(tips[index] - reference_tips[index]) * 1000)
+        pen_error.publish(Float64(data=error_mm))
+        if index == len(reference_positions) - 1 and not stats_reported:
+            errors = tips[ink] - reference_tips[ink]
+            rms = float(np.sqrt(np.mean(np.sum(errors ** 2, axis=1))) * 1000)
+            extra = ''
+            if simulation.controller:
+                controller = simulation.controller
+                extra = (f', QP fallbacks={controller.fallbacks}, '
+                         f'solve p99={np.percentile(controller.solve_times, 99)*1000:.3f} ms')
+            node.get_logger().info(f'Playback finished: pen RMS={rms:.4f} mm{extra}')
+            stats_reported = True
         stamp = node.get_clock().now().to_msg()
         state = JointState()
         state.header.stamp = stamp
         state.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5',
                       'gripper_base_joint', 'left_jaw_joint', 'right_jaw_joint']
-        state.position = [*map(float, q), 0., 0., 0., 0.]
+        state.position = [*map(float, q), GRIPPER_HOLD,
+                          -0.05 * GRIPPER_HOLD, 0.05 * GRIPPER_HOLD]
         if gazebo:
-            for publisher, value in zip(commands, [*q, 0.]):
+            for publisher, value in zip(commands, state.position):
                 publisher.publish(Float64(data=float(value)))
         else:
             joints.publish(state)
@@ -203,26 +322,78 @@ def main(args=None):
         stroke.pose.orientation.w = 1.
         stroke.scale.x = 0.003
         stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a = (0.1, 0.8, 1., 1.)
-        stroke.points = [point(p) for i in range(1, index + 1) if ink[i]
-                         for p in (tips[i - 1], tips[i])]
-        pen = Marker()
-        pen.header = stroke.header
-        pen.ns = 'drawing'
-        pen.id = 1
-        pen.type = Marker.LINE_LIST
-        pen.pose.orientation.w = 1.
-        pen.scale.x = 0.006
-        pen.color.r, pen.color.g, pen.color.b, pen.color.a = (1., 0.6, 0.1, 1.)
-        pen.points = [point(forward(chain, q)[:3, 3]), point(tips[index])]
-        markers.publish(MarkerArray(markers=[stroke, pen]))
+        stroke.points = stroke_vertices
+        if not stroke.points:
+            stroke.action = Marker.DELETE
+        # Delete the legacy Marker pen: the rigid URDF pen now follows robot TF.
+        clear_pen = Marker()
+        clear_pen.ns = 'drawing'
+        clear_pen.id = 1
+        clear_pen.action = Marker.DELETE
+        visible = [stroke, clear_pen]
+        if active_error_deg > 0:
+            reference = Marker()
+            reference.header = stroke.header
+            reference.ns = 'drawing'
+            reference.id = 2
+            reference.type = Marker.LINE_LIST
+            reference.pose.orientation.w = 1.
+            reference.scale.x = 0.0008
+            reference.color.r = reference.color.g = reference.color.b = 0.7
+            reference.color.a = 0.6
+            reference.points = reference_vertices
+            visible.append(reference)
+        else:
+            clear_reference = Marker()
+            clear_reference.ns = 'drawing'
+            clear_reference.id = 2
+            clear_reference.action = Marker.DELETE
+            visible.append(clear_reference)
+        markers.publish(MarkerArray(markers=visible))
 
+    def restart_writing(request, response):
+        nonlocal start, stats_reported, simulation, active_error_deg, mpc_enabled
+        # Construct the new run first; a failure must leave the current run intact.
+        try:
+            candidate = make_simulation()
+        except (ValueError, np.linalg.LinAlgError) as error:
+            response.success = False
+            response.message = str(error)
+            return response
+        simulation = candidate
+        active_error_deg = node.get_parameter('error_deg').value
+        mpc_enabled = node.get_parameter('mpc_enabled').value
+        start = None
+        stats_reported = False
+        tips.fill(np.nan)
+        stroke_vertices.clear()
+        clear = Marker()
+        clear.ns = 'drawing'
+        clear.id = 0
+        clear.action = Marker.DELETE
+        markers.publish(MarkerArray(markers=[clear]))
+        response.success = True
+        response.message = 'Writing restarted from the first sample.'
+        node.get_logger().info(
+            f'Restart requested: cleared ink and reset playback; '
+            f'active error={active_error_deg} deg, MPC={mpc_enabled}.')
+        return response
+
+    node.create_service(Trigger, '/restart_writing', restart_writing)
     node.create_timer(1 / 30, tick)
-    node.get_logger().info('Writing ee528 with pen lifts; holds above the final stroke.')
+    error_deg = node.get_parameter('error_deg').value
+    node.get_logger().info(
+        f'Writing ee528; motor arrival error bound={error_deg} deg, '
+        f'seed={node.get_parameter("error_seed").value}, '
+        f'Linear Constrained Incremental MPC={mpc_enabled}. '
+        'Blue stroke follows actual simulated joints; gray is the ideal reference.')
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        # launch may forward a second SIGINT while ROS entities are being destroyed.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

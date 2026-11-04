@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 import rclpy
 from sensor_msgs.msg import JointState
 import xacro
+from nexarm_description.draw_s import GRIPPER_HOLD
 
 
 class AnglePanel:
@@ -26,7 +27,7 @@ class AnglePanel:
         self.limits = []
         self.entries = []
         self.sliders = []
-        self.current = [0.] * len(self.names)
+        self.current = [0.] * 5 + [GRIPPER_HOLD]
         self.target = self.current.copy()
         self.origin = self.current.copy()
         self.started = time.monotonic()
@@ -49,13 +50,14 @@ class AnglePanel:
             self.limits.append((lower, upper))
             label = f'J{i + 1}' if i < 5 else '夹爪开合'
             ttk.Label(frame, text=label).grid(row=i + 3, column=0, sticky='w', padx=8)
-            value = tk.StringVar(value='0.00')
+            initial_deg = math.degrees(self.current[i])
+            value = tk.StringVar(value=f'{initial_deg:.2f}')
             entry = ttk.Entry(frame, textvariable=value, width=13)
             entry.grid(row=i + 3, column=1, padx=8, pady=8)
             entry.bind('<Return>', lambda event: self.apply())
             slider = ttk.Scale(frame, from_=lower, to=upper,
                                command=lambda v, field=value: field.set(f'{float(v):.2f}'))
-            slider.set(0)
+            slider.set(initial_deg)
             slider.grid(row=i + 3, column=2, sticky='ew', padx=10)
             slider.bind('<ButtonRelease-1>', lambda event: self.apply())
             ttk.Label(frame, text=f'{lower:.2f} ～ {upper:.2f}').grid(

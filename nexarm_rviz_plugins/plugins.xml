@@ -1,0 +1,5 @@
+<library path="nexarm_rviz_plugins">
+  <class name="nexarm_rviz_plugins/ReplayPanel" type="nexarm_rviz_plugins::ReplayPanel" base_class_type="rviz_common::Panel">
+    <description>Clear the current ink and replay the writing simulation.</description>
+  </class>
+</library>
