@@ -1,0 +1,25 @@
+{
+  "samples": 2535,
+  "dt": 0.03333333333333333,
+  "seed": 42,
+  "error_deg": 0.2,
+  "motor_tau": [
+    0.6,
+    0.5,
+    0.6,
+    0.4,
+    0,
+    0
+  ],
+  "text": "ee528 / WU Dihang",
+  "frame": "base_link; add model.world_offset for world coordinates",
+  "noise": "noise_unit is radians at error_deg=1; multiply by desired degrees",
+  "sources": {
+    "nexarm_description/urdf/nexarm.urdf.xacro": "9b749b075ceecf74ec88fc8883327f901e61d6fb4d40f8728f90125c77d7b691",
+    "nexarm_description/nexarm_description/draw_s.py": "6e2a9ee2f8a34f7141fff33d72a80d8a84bb69c6d30a84748b130cc06c5f9756",
+    "algorithm/mpc/nexarm_mpc/linear_incremental.py": "ed5edc2a57ecfe070a86e0b1b096f5433e9712a8ee1a1e87071a929d26af3fd8",
+    "algorithm/mpc/nexarm_mpc/simulation.py": "9bc197683a66395958fa203e597c318664cc390acca0dea8cfd573b053002937",
+    "algorithm/pid/nexarm_pid/controller.py": "b29c4056bcdc938e67eaf390effa993eb4544384d2c2ccb7f3da7b3fd4a8d727",
+    "algorithm/lqr/nexarm_lqr/controller.py": "da88403fe6ede2c4e643434d750f9f278460989495f82dafe888019d9beadde1"
+  }
+}
