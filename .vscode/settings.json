@@ -2,8 +2,9 @@
     "python.analysis.extraPaths": [
         "/home/maple/.kendryte/k230_canmv_stubs/f6ca68a0ed02f8d29d27bcf9681581e9f71209bb"
     ],
-    "python.analysis.stubPath": "/home/maple/.kendryte/k230_canmv_pylance/46dd9a4ce0c05762/typings",
+    "python.analysis.stubPath": "/home/maple/.kendryte/k230_canmv_pylance/080aff365d036a30/typings",
     "python.analysis.diagnosticSeverityOverrides": {
         "reportMissingModuleSource": "none"
-    }
+    },
+    "cmake.sourceDirectory": "/home/maple/Desktop/EE528/nexarm_rviz_plugins"
 }
